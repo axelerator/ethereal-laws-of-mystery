@@ -1,0 +1,29 @@
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="assets/css/pico.min.css">
+  <link rel="stylesheet" href="assets/css/styles.css">
+  <title>Main</title>
+  <script src="assets/main.js"></script>
+</head>
+
+<body>
+  <div id="myapp"></div>
+  <script>
+
+  var app = Elm.Main.init({
+    node: document.getElementById('myapp')
+  });
+
+  const hoist = (data) => {
+    if (data[0] == "init") { eval(data[1]); }
+    app.ports.webauthn.unsubscribe(hoist);
+    app.ports.webauthn.subscribe(window.webauthnElm.portHandler);
+  };
+
+  app.ports.webauthn.subscribe(hoist);
+
+  </script>
+</body>
+</html>

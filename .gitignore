@@ -1,0 +1,4 @@
+/target
+/db.*
+/client/elm-stuff
+/client/main.js
