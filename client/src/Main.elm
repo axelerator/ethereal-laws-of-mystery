@@ -16,6 +16,11 @@ port portOut : ( String, String ) -> Cmd msg
 port portIn : (( String, String ) -> msg) -> Sub msg
 
 
+logout : Cmd msg
+logout =
+    portOut ( "logout", "" )
+
+
 main : Program () Model Msg
 main =
     Browser.element
@@ -45,7 +50,7 @@ init _ =
 type Msg
     = ForWebauthn WebAuthn.Msg
     | ForHome Home.Msg
-    | GotLoginResponse (String, String)
+    | GotLoginResponse ( String, String )
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -64,17 +69,25 @@ update msg model =
             case Decode.decodeString toFrontendEnvelopeDecoder eventData of
                 Ok envelope ->
                     case envelope of
-                          Noop -> noop
-                          Unauthorized -> noop
-                          FromRealm (toFrontend) ->
+                        Noop ->
+                            noop
+
+                        Unauthorized ->
+                            ( Tuple.first <| init ()
+                            , logout
+                            )
+
+                        FromRealm toFrontend ->
                             let
-                                (model__, cmd_) =
-                                  Home.update {webauthn = portOut} (Home.fromBackend toFrontend) model_
-                                cmd = Cmd.map ForHome cmd_
+                                ( model__, cmd_ ) =
+                                    Home.update { webauthn = portOut } (Home.fromBackend toFrontend) model_
+
+                                cmd =
+                                    Cmd.map ForHome cmd_
                             in
-                              ( OnHome model__
-                              , cmd
-                              )
+                            ( OnHome model__
+                            , cmd
+                            )
 
                 Err _ ->
                     noop

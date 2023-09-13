@@ -226,6 +226,7 @@ window.webauthnElm = {
               console.log("Successfully logged in!", response.body);
               window.webauthnElm.incomingPort.send(['login', '']);
               const eventSource = new EventSource('/events');
+              window.webauthnElm.eventSource = eventSource;
               eventSource.onmessage = (event) => {
                 window.webauthnElm.incomingPort.send(['event', event.data])
               }
@@ -243,6 +244,11 @@ window.webauthnElm = {
     if (data[0] == 'login') {
       window.webauthnElm.login(data[1]);
     }
+    if (data[0] == 'logout') {
+      window.webauthnElm.eventSource.close();
+      window.webauthnElm.eventSource = null;
+    }
+
   },
   getCookie: (name) => {
       const cookies = document.cookie.split(";"); // split cookies string into array
