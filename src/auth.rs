@@ -14,6 +14,7 @@ use axum_sessions::extractors::WritableSession;
  * These files use webauthn to process the data received from each route, and are closely tied to axum
  */
 
+use tracing::debug;
 // 1. Import the prelude - this contains everything needed for the server to function.
 use webauthn_rs::prelude::*;
 
@@ -144,7 +145,7 @@ pub async fn finish_register(
         }
     };
 
-    session.insert("logged_in_user", user_unique_id).unwrap();
+    login(user_unique_id, app_state, session).await;
     Ok(res)
 }
 
@@ -280,16 +281,22 @@ pub async fn finish_authentication(
             StatusCode::BAD_REQUEST
         }
     };
-    session.insert("logged_in_user", user_unique_id).unwrap();
-    let session_id = Uuid::new_v4();
-    session.insert("id", session_id).unwrap();
-    let mut sessions_by_user = app_state.sessions_by_user.write().await;
-    let sessions = sessions_by_user.entry(user_unique_id).or_insert(HashSet::new());
-    sessions.insert(session_id);
-
-
-    println!("Authentication Successful!");
+    login(user_unique_id, app_state, session).await;
+    debug!("Authentication Successful!");
     Ok(res)
 }
 
-
+async fn login(user_unique_id: Uuid, app_state: AppState, mut session: WritableSession) {
+    session
+        .insert("logged_in_user", user_unique_id)
+        .expect("Unable to write to session");
+    let session_id = Uuid::new_v4();
+    session
+        .insert("id", session_id)
+        .expect("Unable to write to session");
+    let mut sessions_by_user = app_state.sessions_by_user.write().await;
+    let sessions = sessions_by_user
+        .entry(user_unique_id)
+        .or_insert(HashSet::new());
+    sessions.insert(session_id);
+}

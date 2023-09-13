@@ -1,21 +1,19 @@
 use crate::{
     hades::{write_elm_types, ToFrontendEnvelope},
     startup::AppState,
-    users::SessionId,
 };
 use axum::{
     extract::Extension,
-    headers,
     http::StatusCode,
     response::sse::{Event, Sse},
     response::IntoResponse,
     routing::{get, post},
-    Json, Router, TypedHeader,
+    Json, Router,
 };
-use axum_sessions::extractors::{ReadableSession, WritableSession};
+use axum_sessions::extractors::ReadableSession;
 use axum_sessions::{async_session::MemoryStore, SameSite, SessionLayer};
 use error::WebauthnError;
-use futures::stream::{self, Stream};
+use futures::stream::Stream;
 use hades::ToBackendEnvelope;
 use rand::thread_rng;
 use rand::Rng;
@@ -23,7 +21,9 @@ use std::{convert::Infallible, net::SocketAddr, time::Duration};
 use tokio::sync::mpsc;
 use tokio_stream::{wrappers::ReceiverStream, StreamExt as _};
 use tower_http::services::{ServeDir, ServeFile};
-use webauthn_rs::prelude::{PasskeyAuthentication, RegisterPublicKeyCredential, Uuid};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use webauthn_rs::prelude::Uuid;
+
 mod auth;
 mod error;
 mod hades;
@@ -34,6 +34,14 @@ use crate::auth::{finish_authentication, finish_register, start_authentication, 
 
 #[tokio::main]
 async fn main() {
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "elm_webauthn=debug,tower_http=debug,hyper=error".into()),
+        )
+        .with(tracing_subscriber::fmt::layer())
+        .init();
+
     write_elm_types();
     // Create the app
     let app_state = AppState::new().await;
@@ -66,7 +74,7 @@ async fn main() {
     // run our app with hyper
     // `axum::Server` is a re-export of `hyper::Server`
     let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
-    println!("listening on {addr}");
+    tracing::debug!("listening on {addr}");
     axum::Server::bind(&addr)
         .serve(app.into_make_service())
         .await
@@ -85,19 +93,27 @@ async fn sse_handler(
         event_inboxes.insert(session_id, inbox);
         drop(event_inboxes);
         let mut realm_members = app_state.realm_members.write().await;
-        let members = realm_members.get_mut(&app_state.lobby).unwrap();
+        let members = realm_members
+            .get_mut(&app_state.lobby)
+            .expect("Missing lobby");
         members.insert(session_id);
         drop(realm_members);
         ReceiverStream::new(receiver)
     } else {
         let (inbox, receiver) = mpsc::channel(1);
         tokio::spawn(async move {
-            let _ = inbox.send_timeout(ToFrontendEnvelope::Unauthorized, Duration::from_secs(1)).await;
+            let _ = inbox
+                .send_timeout(ToFrontendEnvelope::Unauthorized, Duration::from_secs(1))
+                .await;
         });
         ReceiverStream::new(receiver)
     };
     let stream = src
-        .map(|envelope| Event::default().json_data(envelope).unwrap())
+        .map(|envelope| {
+            Event::default()
+                .json_data(envelope)
+                .expect("Envelopes should always be serialiable")
+        })
         .map(Ok);
 
     Sse::new(stream).keep_alive(
@@ -114,19 +130,16 @@ pub async fn send(
     if let Some(session_id) = session.get::<Uuid>("id") {
         match envelope {
             ToBackendEnvelope::ForRealm(realm_id, _) => {
-                println!("Before");
                 if app_state.is_member_of(&session_id, realm_id).await {
-                    println!("a member of {} sends {:?}", realm_id, envelope);
                     app_state.realms.read().await.send(envelope).await;
                 } else {
-                    println!("Realms {:?}", app_state.realm_members.read().await.get(&0));
-                    println!("{} not a member of {}", session_id, realm_id);
+                    tracing::warn!("{} not a member of {}", session_id, realm_id);
                 }
             }
         }
         Ok(StatusCode::OK)
     } else {
-        println!("No auth state");
+        tracing::warn!("Received message without session");
         Ok(StatusCode::BAD_REQUEST)
     }
 }

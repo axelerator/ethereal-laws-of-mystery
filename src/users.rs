@@ -1,4 +1,4 @@
-use rusqlite::{Connection, params};
+use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_rusqlite::*;
 use std::collections::HashMap;
@@ -54,7 +54,7 @@ impl Users {
                         "INSERT INTO users (id, name) VALUES (:id, :name)",
                         to_params_named(&user).unwrap().to_slice().as_slice(),
                     )
-                    .unwrap();
+                    .expect("Failed to insert");
                 Some(user)
             })
             .unwrap();
@@ -68,8 +68,6 @@ impl Users {
     }
 
     pub fn by_username(&self, username: &str, connection: &MutexGuard<Connection>) -> Option<User> {
-        //self.name_to_id.get(username).copied()
-
         let mut statement = connection
             .prepare("SELECT * FROM users WHERE name = :username")
             .unwrap();

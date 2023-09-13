@@ -1,20 +1,15 @@
-use rusqlite::{Connection, Result};
+use rusqlite::Connection;
 use serde_rusqlite::*;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use tokio::sync::{
-    mpsc::{Receiver, Sender},
-    Mutex, RwLock,
-};
+use tokio::sync::{mpsc::Sender, Mutex, RwLock};
 use webauthn_rs::prelude::*;
 
-use crate::hades::{RealmId, RealmMsg, ToFrontendEnvelope, ToFrontend};
+use crate::hades::{RealmId, RealmMsg, ToFrontend, ToFrontendEnvelope};
 use crate::users::{SessionId, UserId};
-use crate::{
-    hades::ToBackendEnvelope,
-    users::{User, Users},
-};
+use crate::{hades::ToBackendEnvelope, users::Users};
 use tokio::sync::mpsc;
+use tracing::{debug, error};
 
 /*
  * Webauthn RS server side app state and setup  code.
@@ -80,7 +75,6 @@ pub struct AppState {
     // Alternately, you could use a reference here provided you can work out
     // lifetimes.
     pub webauthn: Arc<Webauthn>,
-    // This needs mutability, so does require a mutex.
     pub users: Arc<Mutex<Users>>,
     pub connection: Arc<Mutex<Connection>>,
     pub realms: Arc<RwLock<Realms>>,
@@ -100,9 +94,9 @@ impl Realms {
         match envelope {
             ToBackendEnvelope::ForRealm(realm_id, realm_msg) => {
                 println!("REALM MSG: {:?}", realm_msg);
-                
+
                 if let Some(realm) = self.realms.get(&realm_id) {
-                     Some(realm.send(realm_msg).await) ;
+                    Some(realm.send(realm_msg).await);
                 } else {
                     println!("Realm not found!");
                 }
@@ -122,16 +116,26 @@ pub async fn new_realm(realm_members: RealmMembers, inboxes: InboxesBySession) -
                 Cmd::SendToSession(_) => todo!(),
                 Cmd::BroadcastToRealm(realm_id, to_fs) => {
                     let realm_members = realm_members.read().await;
-                    let recipients = realm_members.get(&realm_id).unwrap().clone();
-                    drop(realm_members);
-                    let inboxes = inboxes.read().await;
-                    for session_id in recipients {
-                        if let Some(inbox) = inboxes.get(&session_id) {
-                            for to_f in to_fs.iter() {
-                                inbox.send(ToFrontendEnvelope::FromRealm(to_f.clone())).await.expect("Sending to inbox failed");
+                    let recipients = realm_members.get(&realm_id);
+                    match recipients {
+                        None => {
+                            error!("Realm {} doesn't exist", realm_id);
+                            return;
+                        }
+                        Some(recipients) => {
+                            let inboxes = inboxes.read().await;
+                            for session_id in recipients {
+                                if let Some(inbox) = inboxes.get(&session_id) {
+                                    for to_f in to_fs.iter() {
+                                        inbox
+                                            .send(ToFrontendEnvelope::FromRealm(to_f.clone()))
+                                            .await
+                                            .expect("Sending to inbox failed");
+                                    }
+                                } else {
+                                    panic!("Inbox not found");
+                                }
                             }
-                        } else {
-                            panic!("Inbox not found");
                         }
                     }
                 }
@@ -143,11 +147,13 @@ pub async fn new_realm(realm_members: RealmMembers, inboxes: InboxesBySession) -
     tokio::spawn(async move {
         let mut model = Model { counter: 0 };
 
-        while let Some(_message) = receiver.recv().await {
-            println!("incoming message {:?}", _message);
+        while let Some(message) = receiver.recv().await {
+            debug!("Updating model for: {:?}", message);
             let (updated_model, cmd) = model.update();
             model = updated_model;
-            cmd_inbox.send(cmd).await.unwrap();
+            if let Err(_) = cmd_inbox.send(cmd).await {
+                todo!("Client disconnected, stop sending");
+            }
         }
     });
     inbox
@@ -161,7 +167,11 @@ impl Realms {
         }
     }
 
-    pub async fn create_realm(&mut self, realm_members: RealmMembers, inboxes: InboxesBySession) -> RealmId {
+    pub async fn create_realm(
+        &mut self,
+        realm_members: RealmMembers,
+        inboxes: InboxesBySession,
+    ) -> RealmId {
         let inbox = new_realm(realm_members, inboxes).await;
         let realm_id = self.id_seq;
         self.realms.insert(realm_id, inbox);
@@ -173,11 +183,12 @@ impl Realms {
 impl AppState {
     pub async fn is_member_of(&self, session_id: &SessionId, realm_id: RealmId) -> bool {
         let realm_members = self.realm_members.read().await;
-        let contains = 
-            realm_members.get(&realm_id).and_then(|members| Some(members.contains(session_id)));
+        let contains = realm_members
+            .get(&realm_id)
+            .and_then(|members| Some(members.contains(session_id)));
         match contains {
             None => false,
-            Some(c) => c
+            Some(c) => c,
         }
     }
 
@@ -209,9 +220,12 @@ impl AppState {
         let sessions_by_user = Arc::new(RwLock::new(HashMap::new()));
         let events_inbox_by_session_id = Arc::new(RwLock::new(HashMap::new()));
 
-        let lobby = realms.write().await.create_realm(realm_members.clone(), events_inbox_by_session_id.clone()).await;
+        let lobby = realms
+            .write()
+            .await
+            .create_realm(realm_members.clone(), events_inbox_by_session_id.clone())
+            .await;
         realm_members.write().await.insert(lobby, HashSet::new());
-
 
         AppState {
             webauthn,
@@ -221,7 +235,7 @@ impl AppState {
             sessions_by_user,
             realm_members,
             lobby,
-            events_inbox_by_session_id
+            events_inbox_by_session_id,
         }
     }
 }

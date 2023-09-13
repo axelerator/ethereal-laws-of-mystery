@@ -1,16 +1,14 @@
-
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 
-use elm_rs::{Elm, ElmEncode, ElmDecode};
+use elm_rs::{Elm, ElmDecode, ElmEncode};
 
 pub type RealmId = u32;
 
 #[derive(Elm, ElmEncode, Deserialize, Debug)]
 pub enum RealmMsg {
-    Ping
+    Ping,
 }
-
 
 #[derive(Elm, ElmEncode, Deserialize, Debug)]
 pub enum ToBackendEnvelope {
@@ -19,7 +17,7 @@ pub enum ToBackendEnvelope {
 
 #[derive(Elm, ElmDecode, Serialize, Debug, Clone)]
 pub enum ToFrontend {
-    UpdateCounter(u32)
+    UpdateCounter(u32),
 }
 
 #[derive(Elm, ElmDecode, Serialize, Clone, Debug)]
@@ -30,7 +28,6 @@ pub enum ToFrontendEnvelope {
 }
 
 pub fn write_elm_types() {
-    
     let mut target = File::create("client/src/Hades.elm").unwrap();
     // elm_rs provides a macro for conveniently creating an Elm module with everything needed
     elm_rs::export!("Hades", &mut target, {
@@ -42,6 +39,6 @@ pub fn write_elm_types() {
         queries: [],
         // generates types and functions for forming queries for types implementing ElmQueryField
         query_fields: [],
-    }).unwrap();
+    })
+    .unwrap();
 }
-
