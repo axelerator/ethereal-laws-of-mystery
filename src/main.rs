@@ -30,6 +30,7 @@ use webauthn_rs::prelude::Uuid;
 mod app;
 mod auth;
 mod error;
+mod game;
 mod hades;
 mod startup;
 mod users;
