@@ -29,21 +29,21 @@ resultDecoder errDecoder okDecoder =
 
 
 type ToBackendEnvelope
-    = ForRealm (Int) (RealmMsg)
+    = ForRealm (Int) (ToBackend)
 
 
 toBackendEnvelopeEncoder : ToBackendEnvelope -> Json.Encode.Value
 toBackendEnvelopeEncoder enum =
     case enum of
         ForRealm t0 t1 ->
-            Json.Encode.object [ ( "ForRealm", Json.Encode.list identity [ Json.Encode.int t0, realmMsgEncoder t1 ] ) ]
+            Json.Encode.object [ ( "ForRealm", Json.Encode.list identity [ Json.Encode.int t0, toBackendEncoder t1 ] ) ]
 
-type RealmMsg
+type ToBackend
     = Ping
 
 
-realmMsgEncoder : RealmMsg -> Json.Encode.Value
-realmMsgEncoder enum =
+toBackendEncoder : ToBackend -> Json.Encode.Value
+toBackendEncoder enum =
     case enum of
         Ping ->
             Json.Encode.string "Ping"

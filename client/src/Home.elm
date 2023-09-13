@@ -1,6 +1,6 @@
 module Home exposing (Model, Msg, init, update, view, fromBackend)
 
-import Hades exposing (RealmMsg(..), ToBackendEnvelope(..), toBackendEnvelopeEncoder)
+import Hades exposing (ToBackend(..), ToBackendEnvelope(..), toBackendEnvelopeEncoder)
 import Html exposing (button, div, text)
 import Html.Events exposing (onClick)
 import Http exposing (jsonBody)
@@ -13,7 +13,7 @@ type alias Model =
   { counter: Int }
 
 
-send : RealmMsg -> Cmd Msg
+send : ToBackend -> Cmd Msg
 send msg =
     Http.post
         { url = "/send"

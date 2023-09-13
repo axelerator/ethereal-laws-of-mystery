@@ -1,5 +1,6 @@
 #!/bin/sh
 
+
 # check whether user had supplied -h or --help . If yes display usage
 if [[ ( $@ == "--help") ||  $@ == "-h" ]]
 then 
@@ -15,4 +16,5 @@ then
 fi 
 
 dir=$(dirname $0)/..
+elm make $dir/src/Main.elm --output=main.js
 fswatch -o $dir/src/** | xargs -n1 -I{} elm make $dir/src/Main.elm --output=main.js

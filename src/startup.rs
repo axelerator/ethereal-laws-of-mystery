@@ -6,7 +6,8 @@ use tokio::sync::{mpsc::Sender, Mutex, RwLock};
 use webauthn_rs::prelude::*;
 
 use crate::app::Model;
-use crate::hades::{RealmId, RealmMsg, ToFrontend, ToFrontendEnvelope};
+use crate::app::{ToBackend, ToFrontend};
+use crate::hades::{RealmId, ToFrontendEnvelope};
 use crate::users::{SessionId, UserId};
 use crate::{hades::ToBackendEnvelope, users::Users};
 use tokio::sync::mpsc;
@@ -71,7 +72,7 @@ pub struct AppState {
 }
 
 pub struct Realms {
-    pub realms: HashMap<RealmId, Sender<(RealmMsg, RealmId)>>,
+    pub realms: HashMap<RealmId, Sender<(ToBackend, RealmId)>>,
     id_seq: RealmId,
 }
 
@@ -79,14 +80,12 @@ impl Realms {
     pub async fn send(&self, envelope: ToBackendEnvelope) {
         match envelope {
             ToBackendEnvelope::ForRealm(realm_id, realm_msg) => {
-                println!("REALM MSG: {:?}", realm_msg);
-
                 if let Some(realm) = self.realms.get(&realm_id) {
                     if realm.send((realm_msg, realm_id)).await.is_err() {
                         todo!("track disconnected")
                     }
                 } else {
-                    println!("Realm not found!");
+                    error!("Realm {} not found!", realm_id);
                 }
             }
         }
@@ -143,7 +142,7 @@ fn flatten_cmd(cmd: Cmd, accu: &mut Vec<Cmd>) {
 pub async fn new_realm(
     realm_members: RealmMembers,
     inboxes: InboxesBySession,
-) -> Sender<(RealmMsg, RealmId)> {
+) -> Sender<(ToBackend, RealmId)> {
     let (cmd_inbox, mut cmd_receiver) = mpsc::channel(32);
     tokio::spawn(async move {
         while let Some(cmd) = cmd_receiver.recv().await {

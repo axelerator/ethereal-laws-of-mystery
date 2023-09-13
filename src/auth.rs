@@ -57,7 +57,7 @@ pub async fn start_register(
     mut session: WritableSession,
     Path(username): Path<String>,
 ) -> Result<impl IntoResponse, WebauthnError> {
-    println!("Start register");
+    debug!("Start register");
     // We get the username from the URL, but you could get this via form submission or
     // some other process. In some parts of Webauthn, you could also use this as a "display name"
     // instead of a username. Generally you should consider that the user *can* and *will* change
@@ -104,11 +104,11 @@ pub async fn start_register(
             session
                 .insert("reg_state", (username, user_unique_id, reg_state))
                 .expect("Failed to insert");
-            println!("Registration Successful!");
+            debug!("Registration Successful!");
             Json(ccr)
         }
         Err(e) => {
-            println!("challenge_register -> {:?}", e);
+            debug!("challenge_register -> {:?}", e);
             return Err(WebauthnError::Unknown);
         }
     };
@@ -140,7 +140,7 @@ pub async fn finish_register(
             StatusCode::OK
         }
         Err(e) => {
-            println!("challenge_register -> {:?}", e);
+            debug!("challenge_register -> {:?}", e);
             StatusCode::BAD_REQUEST
         }
     };
@@ -183,7 +183,7 @@ pub async fn start_authentication(
     mut session: WritableSession,
     Path(username): Path<String>,
 ) -> Result<impl IntoResponse, WebauthnError> {
-    println!("Start Authentication");
+    debug!("Start Authentication");
     // We get the username from the URL, but you could get this via form submission or
     // some other process.
 
@@ -234,7 +234,7 @@ pub async fn start_authentication(
             Json(rcr)
         }
         Err(e) => {
-            println!("challenge_authenticate -> {:?}", e);
+            debug!("challenge_authenticate -> {:?}", e);
             return Err(WebauthnError::Unknown);
         }
     };
@@ -277,7 +277,7 @@ pub async fn finish_authentication(
             StatusCode::OK
         }
         Err(e) => {
-            println!("challenge_register -> {:?}", e);
+            debug!("challenge_register -> {:?}", e);
             StatusCode::BAD_REQUEST
         }
     };
