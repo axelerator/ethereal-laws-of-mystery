@@ -77,26 +77,28 @@ async fn sse_handler(
     Extension(app_state): Extension<AppState>,
     session: ReadableSession,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let session_id_opt = session.get("id");
+    let src = if let Some(session_id) = session_id_opt {
+        let (inbox, receiver) = mpsc::channel(32);
 
-    let session_id: SessionId = session.get("id").unwrap();
-    let (inbox, receiver) = mpsc::channel(32);
-
-    let mut event_inboxes = app_state.events_inbox_by_session_id.write().await;
-    event_inboxes.insert(session_id, inbox);
-    drop(event_inboxes);
-    let stream = ReceiverStream::new(receiver)
+        let mut event_inboxes = app_state.events_inbox_by_session_id.write().await;
+        event_inboxes.insert(session_id, inbox);
+        drop(event_inboxes);
+        let mut realm_members = app_state.realm_members.write().await;
+        let members = realm_members.get_mut(&app_state.lobby).unwrap();
+        members.insert(session_id);
+        drop(realm_members);
+        ReceiverStream::new(receiver)
+    } else {
+        let (inbox, receiver) = mpsc::channel(1);
+        tokio::spawn(async move {
+            let _ = inbox.send_timeout(ToFrontendEnvelope::Unauthorized, Duration::from_secs(1)).await;
+        });
+        ReceiverStream::new(receiver)
+    };
+    let stream = src
         .map(|envelope| Event::default().json_data(envelope).unwrap())
         .map(Ok);
-    let mut realm_members = app_state.realm_members.write().await;
-    let members = realm_members.get_mut(&app_state.lobby).unwrap();
-    members.insert(session_id);
-    drop(realm_members);
-    println!(
-        "members.insert(session_id); {:?} isMO: {} - asl: {}",
-        session_id,
-        app_state.is_member_of(&session_id, 0).await,
-        &app_state.lobby
-    );
 
     Sse::new(stream).keep_alive(
         axum::response::sse::KeepAlive::new()

@@ -128,7 +128,6 @@ pub async fn new_realm(realm_members: RealmMembers, inboxes: InboxesBySession) -
                     for session_id in recipients {
                         if let Some(inbox) = inboxes.get(&session_id) {
                             for to_f in to_fs.iter() {
-                                println!("Sending to: {}", session_id);
                                 inbox.send(ToFrontendEnvelope::FromRealm(to_f.clone())).await.expect("Sending to inbox failed");
                             }
                         } else {
