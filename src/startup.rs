@@ -68,26 +68,21 @@ pub struct AppState {
     pub realm_members: RealmMembers,
     pub sessions_by_user: Arc<RwLock<HashMap<UserId, HashSet<SessionId>>>>,
     pub events_inbox_by_session_id: InboxesBySession,
-    pub lobby: RealmId,
 }
 
 pub struct Realms {
     pub realms: HashMap<RealmId, Sender<(ToBackend, RealmId)>>,
-    id_seq: RealmId,
+    id_seq: u32,
 }
 
 impl Realms {
-    pub async fn send(&self, envelope: ToBackendEnvelope) {
-        match envelope {
-            ToBackendEnvelope::ForRealm(realm_id, realm_msg) => {
-                if let Some(realm) = self.realms.get(&realm_id) {
-                    if realm.send((realm_msg, realm_id)).await.is_err() {
-                        todo!("track disconnected")
-                    }
-                } else {
-                    error!("Realm {} not found!", realm_id);
-                }
+    pub async fn send(&self, realm_id: RealmId, to_backend: ToBackend) {
+        if let Some(realm) = self.realms.get(&realm_id) {
+            if realm.send((to_backend, realm_id)).await.is_err() {
+                todo!("track disconnected")
             }
+        } else {
+            error!("Realm {:?} not found!", realm_id);
         }
     }
 }
@@ -103,7 +98,7 @@ async fn process_cmd(cmd: Cmd, realm_members: &RealmMembers, inboxes: &InboxesBy
             let recipients = realm_members.get(&realm_id);
             match recipients {
                 None => {
-                    error!("Realm {} doesn't exist", realm_id);
+                    error!("Realm {:?} doesn't exist", realm_id);
                     return;
                 }
                 Some(recipients) => {
@@ -159,7 +154,7 @@ pub async fn new_realm(
         let mut model = Model::new();
 
         while let Some((message, realm_id)) = receiver.recv().await {
-            debug!("Updating model for: {} with {:?}", realm_id, message);
+            debug!("Updating model for: {:?} with {:?}", realm_id, message);
             let (updated_model, cmd) = model.update(message, realm_id);
             model = updated_model;
             if let Err(_) = cmd_inbox.send(cmd).await {
@@ -185,17 +180,27 @@ impl Realms {
     ) -> RealmId {
         let inbox = new_realm(realm_members, inboxes).await;
         let realm_id = self.id_seq;
-        self.realms.insert(realm_id, inbox);
+        self.realms.insert(RealmId::Realm(realm_id), inbox);
         self.id_seq += 1;
-        realm_id
+        RealmId::Realm(realm_id)
+    }
+
+    pub async fn create_lobby(
+        &mut self,
+        realm_members: RealmMembers,
+        inboxes: InboxesBySession,
+    ) -> RealmId {
+        let inbox = new_realm(realm_members, inboxes).await;
+        self.realms.insert(RealmId::Lobby, inbox);
+        RealmId::Lobby
     }
 }
 
 impl AppState {
-    pub async fn is_member_of(&self, session_id: &SessionId, realm_id: RealmId) -> bool {
+    pub async fn is_member_of(&self, session_id: &SessionId, realm_id: &RealmId) -> bool {
         let realm_members = self.realm_members.read().await;
         let contains = realm_members
-            .get(&realm_id)
+            .get(realm_id)
             .map(|members| members.contains(session_id));
         contains.unwrap_or(false)
     }
@@ -228,12 +233,12 @@ impl AppState {
         let sessions_by_user = Arc::new(RwLock::new(HashMap::new()));
         let events_inbox_by_session_id = Arc::new(RwLock::new(HashMap::new()));
 
-        let lobby = realms
+        let lobby_id = realms
             .write()
             .await
-            .create_realm(realm_members.clone(), events_inbox_by_session_id.clone())
+            .create_lobby(realm_members.clone(), events_inbox_by_session_id.clone())
             .await;
-        realm_members.write().await.insert(lobby, HashSet::new());
+        realm_members.write().await.insert(lobby_id, HashSet::new());
 
         AppState {
             webauthn,
@@ -242,7 +247,6 @@ impl AppState {
             realms,
             sessions_by_user,
             realm_members,
-            lobby,
             events_inbox_by_session_id,
         }
     }

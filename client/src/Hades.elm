@@ -28,15 +28,28 @@ resultDecoder errDecoder okDecoder =
         ]
 
 
+type RealmId
+    = Lobby
+    | Realm (Int)
+
+
+realmIdEncoder : RealmId -> Json.Encode.Value
+realmIdEncoder enum =
+    case enum of
+        Lobby ->
+            Json.Encode.string "Lobby"
+        Realm inner ->
+            Json.Encode.object [ ( "Realm", Json.Encode.int inner ) ]
+
 type ToBackendEnvelope
-    = ForRealm (Int) (ToBackend)
+    = ForRealm (RealmId) (ToBackend)
 
 
 toBackendEnvelopeEncoder : ToBackendEnvelope -> Json.Encode.Value
 toBackendEnvelopeEncoder enum =
     case enum of
         ForRealm t0 t1 ->
-            Json.Encode.object [ ( "ForRealm", Json.Encode.list identity [ Json.Encode.int t0, toBackendEncoder t1 ] ) ]
+            Json.Encode.object [ ( "ForRealm", Json.Encode.list identity [ realmIdEncoder t0, toBackendEncoder t1 ] ) ]
 
 type ToBackend
     = Increment
@@ -50,6 +63,21 @@ toBackendEncoder enum =
             Json.Encode.string "Increment"
         Decrement ->
             Json.Encode.string "Decrement"
+
+realmIdDecoder : Json.Decode.Decoder RealmId
+realmIdDecoder = 
+    Json.Decode.oneOf
+        [ Json.Decode.string
+            |> Json.Decode.andThen
+                (\x ->
+                    case x of
+                        "Lobby" ->
+                            Json.Decode.succeed Lobby
+                        unexpected ->
+                            Json.Decode.fail <| "Unexpected variant " ++ unexpected
+                )
+        , Json.Decode.map Realm (Json.Decode.field "Realm" (Json.Decode.int))
+        ]
 
 type ToFrontendEnvelope
     = Noop

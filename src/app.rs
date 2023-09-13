@@ -5,7 +5,7 @@ use crate::{hades::RealmId, startup::Cmd};
 
 #[derive(Elm, ElmDecode, Serialize, Debug, Clone)]
 pub enum ToFrontend {
-    UpdateCounter(u32),
+    UpdateCounter(i32),
 }
 
 #[derive(Elm, ElmEncode, Deserialize, Debug)]
@@ -15,7 +15,7 @@ pub enum ToBackend {
 }
 
 pub struct Model {
-    counter: u32,
+    counter: i32,
 }
 
 impl Model {

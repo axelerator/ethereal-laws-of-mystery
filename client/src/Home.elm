@@ -7,6 +7,7 @@ import Http exposing (jsonBody)
 import Json.Encode as Encode
 import WebAuthn exposing (Msg)
 import Html exposing (br)
+import Hades exposing (RealmId(..))
 
 
 type alias Model =
@@ -17,7 +18,7 @@ send : ToBackend -> Cmd Msg
 send msg =
     Http.post
         { url = "/send"
-        , body = jsonBody <| toBackendEnvelopeEncoder <| ForRealm 0 msg
+        , body = jsonBody <| toBackendEnvelopeEncoder <| ForRealm Lobby msg
         , expect = Http.expectWhatever GotSendResponse
         }
 

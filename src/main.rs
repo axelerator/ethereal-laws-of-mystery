@@ -99,7 +99,7 @@ async fn sse_handler(
         drop(event_inboxes);
         let mut realm_members = app_state.realm_members.write().await;
         let members = realm_members
-            .get_mut(&app_state.lobby)
+            .get_mut(&hades::RealmId::Lobby)
             .expect("Missing lobby");
         members.insert(session_id);
         drop(realm_members);
@@ -134,11 +134,16 @@ pub async fn send(
 ) -> Result<impl IntoResponse, WebauthnError> {
     if let Some(session_id) = session.get::<Uuid>("id") {
         match envelope {
-            ToBackendEnvelope::ForRealm(realm_id, _) => {
-                if app_state.is_member_of(&session_id, realm_id).await {
-                    app_state.realms.read().await.send(envelope).await;
+            ToBackendEnvelope::ForRealm(realm_id, to_backend) => {
+                if app_state.is_member_of(&session_id, &realm_id).await {
+                    app_state
+                        .realms
+                        .read()
+                        .await
+                        .send(realm_id, to_backend)
+                        .await;
                 } else {
-                    tracing::warn!("{} not a member of {}", session_id, realm_id);
+                    tracing::warn!("{} not a member of {:?}", session_id, realm_id);
                 }
             }
         }
