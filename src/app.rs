@@ -10,7 +10,8 @@ pub enum ToFrontend {
 
 #[derive(Elm, ElmEncode, Deserialize, Debug)]
 pub enum ToBackend {
-    Ping,
+    Increment,
+    Decrement,
 }
 
 pub struct Model {
@@ -24,13 +25,19 @@ impl Model {
 
     pub fn update(&self, msg: ToBackend, realm_id: RealmId) -> (Model, Cmd) {
         match msg {
-            ToBackend::Ping => {
-                let model = Model {
-                    counter: self.counter + 1,
-                };
-
-                let msgs = [ToFrontend::UpdateCounter(model.counter)];
-                (model, Cmd::broadcast(realm_id, msgs))
+            ToBackend::Increment => {
+                let counter = self.counter + 1;
+                (
+                    Model { counter, ..*self },
+                    Cmd::broadcast(realm_id, [ToFrontend::UpdateCounter(counter)]),
+                )
+            }
+            ToBackend::Decrement => {
+                let counter = self.counter - 1;
+                (
+                    Model { counter, ..*self },
+                    Cmd::broadcast(realm_id, [ToFrontend::UpdateCounter(counter)]),
+                )
             }
         }
     }

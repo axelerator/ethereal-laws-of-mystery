@@ -21,7 +21,9 @@ use std::{convert::Infallible, net::SocketAddr, time::Duration};
 use tokio::sync::mpsc;
 use tokio_stream::{wrappers::ReceiverStream, StreamExt as _};
 use tower_http::services::{ServeDir, ServeFile};
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, FmtSubscriber, EnvFilter, registry};
+use tracing_subscriber::{
+    layer::SubscriberExt, registry, util::SubscriberInitExt, EnvFilter, FmtSubscriber,
+};
 use webauthn_rs::prelude::Uuid;
 
 mod app;
@@ -40,8 +42,7 @@ async fn main() {
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| "elm_webauthn=debug,tower_http=debug,".into())
                 .add_directive("hyper::proto::h1::io=error".parse().unwrap())
-                .add_directive("hyper::proto::h1::conn=error".parse().unwrap())
-                ,
+                .add_directive("hyper::proto::h1::conn=error".parse().unwrap()),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();

@@ -39,14 +39,17 @@ toBackendEnvelopeEncoder enum =
             Json.Encode.object [ ( "ForRealm", Json.Encode.list identity [ Json.Encode.int t0, toBackendEncoder t1 ] ) ]
 
 type ToBackend
-    = Ping
+    = Increment
+    | Decrement
 
 
 toBackendEncoder : ToBackend -> Json.Encode.Value
 toBackendEncoder enum =
     case enum of
-        Ping ->
-            Json.Encode.string "Ping"
+        Increment ->
+            Json.Encode.string "Increment"
+        Decrement ->
+            Json.Encode.string "Decrement"
 
 type ToFrontendEnvelope
     = Noop

@@ -1,16 +1,16 @@
-module Home exposing (Model, Msg, init, update, view, fromBackend)
+module Home exposing (Model, Msg, fromBackend, init, update, view)
 
-import Hades exposing (ToBackend(..), ToBackendEnvelope(..), toBackendEnvelopeEncoder)
+import Hades exposing (ToBackend(..), ToBackendEnvelope(..), ToFrontend(..), toBackendEnvelopeEncoder)
 import Html exposing (button, div, text)
 import Html.Events exposing (onClick)
 import Http exposing (jsonBody)
 import Json.Encode as Encode
 import WebAuthn exposing (Msg)
-import Hades exposing (ToFrontend(..))
+import Html exposing (br)
 
 
 type alias Model =
-  { counter: Int }
+    { counter : Int }
 
 
 send : ToBackend -> Cmd Msg
@@ -21,46 +21,54 @@ send msg =
         , expect = Http.expectWhatever GotSendResponse
         }
 
+
 fromBackend : ToFrontend -> Msg
-fromBackend toFrontend = FromBackend toFrontend
+fromBackend toFrontend =
+    FromBackend toFrontend
+
 
 type Msg
-    = Click
+    = Moar
+    | Less
     | GotSendResponse (Result Http.Error ())
     | FromBackend ToFrontend
 
 
-
 init =
-  { counter = 0 }
+    { counter = 0 }
+
 
 updateFromRealm toFrontend model =
-  model
+    model
+
 
 update { webauthn } msg model =
     case msg of
         FromBackend toFrontend ->
-          case toFrontend of
-              UpdateCounter i ->
-                ( { model | counter = i }
-                , Cmd.none
-                )
+            case toFrontend of
+                UpdateCounter i ->
+                    ( { model | counter = i }
+                    , Cmd.none
+                    )
 
         GotSendResponse result ->
             ( model, Cmd.none )
 
-        Click ->
-            let
-                data =
-                    Encode.encode 0 <| toBackendEnvelopeEncoder <| ForRealm 0 Ping
-            in
+        Moar ->
             ( model
-            , send Ping
+            , send Increment
+            )
+
+        Less ->
+            ( model
+            , send Decrement
             )
 
 
 view model =
-    div [] 
-      [ text <| String.fromInt model.counter
-      , button [ onClick Click ] [ text "click" ] 
-      ]
+    div []
+        [ text <| String.fromInt model.counter
+        , br [] []
+        , button [ onClick Less ] [ text "less" ]
+        , button [ onClick Moar ] [ text "moar" ]
+        ]
