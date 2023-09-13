@@ -24,6 +24,7 @@ use tower_http::services::{ServeDir, ServeFile};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use webauthn_rs::prelude::Uuid;
 
+mod app;
 mod auth;
 mod error;
 mod hades;

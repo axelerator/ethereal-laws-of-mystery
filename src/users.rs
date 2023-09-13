@@ -76,7 +76,7 @@ impl Users {
             .query_and_then(&[(":username", username)], from_row::<User>)
             .unwrap();
 
-        res.next().and_then(|row| Some(row.unwrap()))
+        res.next().map(|row| row.unwrap())
     }
 
     pub fn credentials_for(
@@ -113,7 +113,7 @@ impl Users {
             // This will update the credential if it's the matching
             // one. Otherwise it's ignored. That is why it is safe to
             // iterate this over the full list.
-            ppk.passkey.update_credential(&auth_result);
+            ppk.passkey.update_credential(auth_result);
             let passkey_toml: String =
                 toml::to_string(&ppk.passkey).expect("Failed to serialize PassKey");
             connection
