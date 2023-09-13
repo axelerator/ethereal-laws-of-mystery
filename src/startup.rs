@@ -1,11 +1,19 @@
-use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::{Mutex, RwLock, mpsc::{Receiver, Sender}};
-use webauthn_rs::prelude::*;
 use rusqlite::{Connection, Result};
 use serde_rusqlite::*;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use tokio::sync::{
+    mpsc::{Receiver, Sender},
+    Mutex, RwLock,
+};
+use webauthn_rs::prelude::*;
 
-use crate::users::{Users, User};
+use crate::hades::{RealmId, RealmMsg, ToFrontendEnvelope, ToFrontend};
+use crate::users::{SessionId, UserId};
+use crate::{
+    hades::ToBackendEnvelope,
+    users::{User, Users},
+};
 use tokio::sync::mpsc;
 
 /*
@@ -18,18 +26,8 @@ use tokio::sync::mpsc;
 // webauthn credentials. Remember, rp_id is derived from your URL origin, meaning
 // that it is your effective domain name.
 
-type RealmId = u32;
-pub struct Realm {
-    id: RealmId,
-}
-
 struct Model {
-    counter: u32
-}
-
-#[derive(Clone, Debug)]
-enum ToFrontend {
-    UpdateCounter(u32)
+    counter: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -38,7 +36,7 @@ enum Cmd {
     Cmds(Vec<Cmd>),
     SendToUser(ToFrontend),
     SendToSession(ToFrontend),
-    BroadcastToRealm(Vec<ToFrontend>),
+    BroadcastToRealm(RealmId, Vec<ToFrontend>),
 }
 
 impl Cmd {
@@ -46,38 +44,35 @@ impl Cmd {
         Cmd::None
     }
 
-    pub fn batch<CS>(cmds: CS) -> Cmd 
+    pub fn batch<CS>(cmds: CS) -> Cmd
     where
-        CS: for<'a> Into<&'a [Cmd]>
+        CS: for<'a> Into<&'a [Cmd]>,
     {
         Cmd::Cmds(cmds.into().to_vec())
     }
 
-    pub fn broadcast<'a, I>(msgs: I) -> Cmd
+    pub fn broadcast<'a, I>(realm_id: RealmId, msgs: I) -> Cmd
     where
         I: IntoIterator<Item = ToFrontend>,
     {
-        let msgs : Vec<ToFrontend> = msgs.into_iter().collect();
-        Cmd::BroadcastToRealm(msgs)
+        let msgs: Vec<ToFrontend> = msgs.into_iter().collect();
+        Cmd::BroadcastToRealm(realm_id, msgs)
     }
-
 }
 
 impl Model {
     pub fn update(&self) -> (Model, Cmd) {
         let model = Model {
-            counter: self.counter + 1
+            counter: self.counter + 1,
         };
 
         let msgs = [ToFrontend::UpdateCounter(model.counter)];
-        (model, Cmd::broadcast(msgs))
+        (model, Cmd::broadcast(0, msgs))
     }
 }
 
-type RealmMsg = i32;
-
-impl Realm {
-}
+type RealmMembers = Arc<RwLock<HashMap<RealmId, HashSet<SessionId>>>>;
+type InboxesBySession = Arc<RwLock<HashMap<SessionId, Sender<ToFrontendEnvelope>>>>;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -89,24 +84,71 @@ pub struct AppState {
     pub users: Arc<Mutex<Users>>,
     pub connection: Arc<Mutex<Connection>>,
     pub realms: Arc<RwLock<Realms>>,
+    pub realm_members: RealmMembers,
+    pub sessions_by_user: Arc<RwLock<HashMap<UserId, HashSet<SessionId>>>>,
+    pub events_inbox_by_session_id: InboxesBySession,
+    pub lobby: RealmId,
 }
 
-
 pub struct Realms {
-    realms: HashMap<RealmId, Sender<RealmMsg>>, 
+    pub realms: HashMap<RealmId, Sender<RealmMsg>>,
     id_seq: RealmId,
 }
 
+impl Realms {
+    pub async fn send(&self, envelope: ToBackendEnvelope) {
+        match envelope {
+            ToBackendEnvelope::ForRealm(realm_id, realm_msg) => {
+                println!("REALM MSG: {:?}", realm_msg);
+                
+                if let Some(realm) = self.realms.get(&realm_id) {
+                     Some(realm.send(realm_msg).await) ;
+                } else {
+                    println!("Realm not found!");
+                }
+            }
+        }
+    }
+}
 
-pub async fn new_realm() -> Sender<RealmMsg> {
+pub async fn new_realm(realm_members: RealmMembers, inboxes: InboxesBySession) -> Sender<RealmMsg> {
+    let (cmd_inbox, mut cmd_receiver) = mpsc::channel(32);
+    tokio::spawn(async move {
+        while let Some(cmd) = cmd_receiver.recv().await {
+            match cmd {
+                Cmd::None => {}
+                Cmd::Cmds(_) => todo!(),
+                Cmd::SendToUser(_) => todo!(),
+                Cmd::SendToSession(_) => todo!(),
+                Cmd::BroadcastToRealm(realm_id, to_fs) => {
+                    let realm_members = realm_members.read().await;
+                    let recipients = realm_members.get(&realm_id).unwrap().clone();
+                    drop(realm_members);
+                    let inboxes = inboxes.read().await;
+                    for session_id in recipients {
+                        if let Some(inbox) = inboxes.get(&session_id) {
+                            for to_f in to_fs.iter() {
+                                println!("Sending to: {}", session_id);
+                                inbox.send(ToFrontendEnvelope::FromRealm(to_f.clone())).await.expect("Sending to inbox failed");
+                            }
+                        } else {
+                            panic!("Inbox not found");
+                        }
+                    }
+                }
+            }
+        }
+    });
+
     let (inbox, mut receiver) = mpsc::channel(32);
-
     tokio::spawn(async move {
         let mut model = Model { counter: 0 };
 
         while let Some(_message) = receiver.recv().await {
+            println!("incoming message {:?}", _message);
             let (updated_model, cmd) = model.update();
             model = updated_model;
+            cmd_inbox.send(cmd).await.unwrap();
         }
     });
     inbox
@@ -116,32 +158,31 @@ impl Realms {
     pub fn new() -> Realms {
         Realms {
             realms: HashMap::new(),
-            id_seq: 0
+            id_seq: 0,
         }
     }
 
-    pub async fn create_realm(&mut self) -> RealmId {
-        let inbox = new_realm().await;
-        self.realms.insert(self.id_seq, inbox);
+    pub async fn create_realm(&mut self, realm_members: RealmMembers, inboxes: InboxesBySession) -> RealmId {
+        let inbox = new_realm(realm_members, inboxes).await;
+        let realm_id = self.id_seq;
+        self.realms.insert(realm_id, inbox);
         self.id_seq = self.id_seq + 1;
-        self.id_seq
+        realm_id
     }
 }
 
-
 impl AppState {
-
-    pub async fn test(&self) {
-        let conn = self.connection.lock().await;
-        let mut statement = conn.prepare("SELECT * FROM users").unwrap();
-        let res = from_rows::<User>(statement.query([]).unwrap()); 
-
-        for user in res {
-            println!("User: {}", user.unwrap().name);
+    pub async fn is_member_of(&self, session_id: &SessionId, realm_id: RealmId) -> bool {
+        let realm_members = self.realm_members.read().await;
+        let contains = 
+            realm_members.get(&realm_id).and_then(|members| Some(members.contains(session_id)));
+        match contains {
+            None => false,
+            Some(c) => c
         }
     }
 
-    pub fn new() -> Self {
+    pub async fn new() -> Self {
         // Effective domain name.
         let rp_id = "localhost";
         // Url containing the effective domain name
@@ -161,10 +202,27 @@ impl AppState {
             name_to_id: HashMap::new(),
             keys: HashMap::new(),
         }));
-        let connection = 
-            Arc::new(Mutex::new(Connection::open("db.sqlite").expect("Didn't find sqlite DB")));
+        let connection = Arc::new(Mutex::new(
+            Connection::open("db.sqlite").expect("Didn't find sqlite DB"),
+        ));
         let realms = Arc::new(RwLock::new(Realms::new()));
-        let realm_id_seq = Arc::new(Mutex::new(0));
-        AppState { webauthn, users, connection, realms }
+        let realm_members = Arc::new(RwLock::new(HashMap::new()));
+        let sessions_by_user = Arc::new(RwLock::new(HashMap::new()));
+        let events_inbox_by_session_id = Arc::new(RwLock::new(HashMap::new()));
+
+        let lobby = realms.write().await.create_realm(realm_members.clone(), events_inbox_by_session_id.clone()).await;
+        realm_members.write().await.insert(lobby, HashSet::new());
+
+
+        AppState {
+            webauthn,
+            users,
+            connection,
+            realms,
+            sessions_by_user,
+            realm_members,
+            lobby,
+            events_inbox_by_session_id
+        }
     }
 }

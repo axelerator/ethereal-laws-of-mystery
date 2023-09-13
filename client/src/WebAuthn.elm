@@ -223,7 +223,13 @@ window.webauthnElm = {
           .then((response) => {
             console.log("Login response", response);
             if (response.ok){
-              console.log("Successfully logged in!", response.body)
+              console.log("Successfully logged in!", response.body);
+              window.webauthnElm.incomingPort.send(['login', '']);
+              const eventSource = new EventSource('/events');
+              eventSource.onmessage = (event) => {
+                window.webauthnElm.incomingPort.send(['event', event.data])
+              }
+
             } else {
               console.log("Error whilst logging in!");
             }
@@ -237,6 +243,24 @@ window.webauthnElm = {
     if (data[0] == 'login') {
       window.webauthnElm.login(data[1]);
     }
+  },
+  getCookie: (name) => {
+      const cookies = document.cookie.split(";"); // split cookies string into array
+      for (let i = 0; i < cookies.length; i++) {
+        const cookie = cookies[i].trim(); // trim whitespace
+        const equals = cookie.indexOf("="); // find position of equals sign
+        const cookieName = cookie.substring(0, equals); // get cookie name
+        if (cookieName === name) {
+          const cookieValue = cookie.substring(equals + 1); // get cookie value
+          return decodeURIComponent(cookieValue); // decode and return cookie value
+        }
+      }
+      return null; // return null if cookie not found
+  },
+  finishHoisting: (outgoingPort, incomingPort, app) => {
+    app.ports[outgoingPort].unsubscribe(hoist);
+    app.ports[outgoingPort].subscribe(window.webauthnElm.portHandler);
+    window.webauthnElm.incomingPort = app.ports[incomingPort];
   }
 };
 """

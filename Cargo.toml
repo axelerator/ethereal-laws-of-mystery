@@ -18,3 +18,6 @@ rusqlite = { version = "0.29.0", features = ["bundled"] }
 serde_rusqlite = "0.33.1"
 serde = { version = "1.0.188", features = ["derive"] }
 toml = "0.7.8"
+elm_rs = "0.2.1"
+tokio-stream = "0.1.14"
+futures = "0.3.28"

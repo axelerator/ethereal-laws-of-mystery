@@ -521,6 +521,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "elm_rs"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3666dd0eadb0785d024b56e98e3ca4845086e51c1f4d9ce7acb433d13c508184"
+dependencies = [
+ "elm_rs_derive",
+]
+
+[[package]]
+name = "elm_rs_derive"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2413bf9dcb1e0f3a86ea23b7fa681ceb31442f6f3f3c50d2f605e91b270b00cc"
+dependencies = [
+ "heck",
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -763,6 +784,12 @@ checksum = "e7f66481bfee273957b1f20485a4ff3362987f85b2c236580d81b4eb7a326429"
 dependencies = [
  "http",
 ]
+
+[[package]]
+name = "heck"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "95505c38b4572b2d910cecb0281560f54b440a19336cbbcb27bf6ce6adc6f5a8"
 
 [[package]]
 name = "hermit-abi"
@@ -1557,6 +1584,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "tokio-stream"
+version = "0.1.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "397c988d37662c7dda6d2208364a706264bf3d6138b11d436cbac0ad38832842"
+dependencies = [
+ "futures-core",
+ "pin-project-lite",
+ "tokio",
+]
+
+[[package]]
 name = "tokio-util"
 version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1847,12 +1885,15 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "axum-sessions",
+ "elm_rs",
+ "futures",
  "rand",
  "rusqlite",
  "serde",
  "serde_rusqlite",
  "thiserror",
  "tokio",
+ "tokio-stream",
  "toml",
  "tower-http",
  "url",

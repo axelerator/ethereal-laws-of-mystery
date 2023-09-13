@@ -18,11 +18,10 @@
 
   const hoist = (data) => {
     if (data[0] == "init") { eval(data[1]); }
-    app.ports.webauthn.unsubscribe(hoist);
-    app.ports.webauthn.subscribe(window.webauthnElm.portHandler);
+    window.webauthnElm.finishHoisting('portOut', 'portIn', app)
   };
 
-  app.ports.webauthn.subscribe(hoist);
+  app.ports.portOut.subscribe(hoist);
 
   </script>
 </body>

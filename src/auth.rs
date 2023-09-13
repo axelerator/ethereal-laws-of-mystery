@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::error::WebauthnError;
 use crate::startup::AppState;
 use axum::{
@@ -115,7 +117,6 @@ pub async fn start_register(
 // 3. The browser has completed it's steps and the user has created a public key
 // on their device. Now we have the registration options sent to us, and we need
 // to verify these and persist them.
-
 pub async fn finish_register(
     Extension(app_state): Extension<AppState>,
     mut session: WritableSession,
@@ -280,6 +281,15 @@ pub async fn finish_authentication(
         }
     };
     session.insert("logged_in_user", user_unique_id).unwrap();
+    let session_id = Uuid::new_v4();
+    session.insert("id", session_id).unwrap();
+    let mut sessions_by_user = app_state.sessions_by_user.write().await;
+    let sessions = sessions_by_user.entry(user_unique_id).or_insert(HashSet::new());
+    sessions.insert(session_id);
+
+
     println!("Authentication Successful!");
     Ok(res)
 }
+
+

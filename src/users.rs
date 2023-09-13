@@ -7,7 +7,8 @@ use webauthn_rs::prelude::AuthenticationResult;
 use webauthn_rs::prelude::Passkey;
 use webauthn_rs::prelude::Uuid;
 
-type UserId = Uuid;
+pub type SessionId = Uuid;
+pub type UserId = Uuid;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct User {
