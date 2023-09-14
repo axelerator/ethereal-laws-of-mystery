@@ -3,7 +3,10 @@ use serde::{Deserialize, Serialize};
 use std::fs::File;
 use webauthn_rs::prelude::Uuid;
 
-use crate::app::{ToBackend, ToFrontend};
+use crate::{
+    app::{ToBackend, ToFrontend, ToLobby},
+    game::{Card, Suite, ToGame, Transition},
+};
 
 // None = Lobby
 #[derive(Elm, ElmDecode, ElmEncode, Deserialize, Serialize, PartialEq, Eq, Hash, Debug, Clone)]
@@ -29,9 +32,9 @@ pub fn write_elm_types() {
     // elm_rs provides a macro for conveniently creating an Elm module with everything needed
     elm_rs::export!("Hades", &mut target, {
         // generates types and encoders for types implementing ElmEncoder
-        encoders: [RealmId, ToBackendEnvelope, ToBackend],
+        encoders: [RealmId, ToBackendEnvelope, ToBackend, ToLobby, ToGame],
         // generates types and decoders for types implementing ElmDecoder
-        decoders: [RealmId, ToFrontendEnvelope, ToFrontend],
+        decoders: [RealmId, ToFrontendEnvelope, ToFrontend, Transition, Card, Suite],
         // generates types and functions for forming queries for types implementing ElmQuery
         queries: [],
         // generates types and functions for forming queries for types implementing ElmQueryField

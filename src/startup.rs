@@ -30,11 +30,12 @@ pub struct Cmd {
 #[derive(Clone, Debug)]
 pub enum CmdInternal {
     None,
-    Cmds(Vec<CmdInternal>),
+    Cmds(Vec<Cmd>),
     SendToUser(UserId, Vec<ToFrontend>),
     SendToSession(SessionId, Vec<ToFrontend>),
     BroadcastToRealm(RealmId, Vec<ToFrontend>),
     Spawn(RealmId, NewRealmHint, Msg),
+    AddUserToRealm(RealmId, UserId),
 }
 
 type SessionsByUser = Arc<RwLock<HashMap<UserId, HashSet<SessionId>>>>;
@@ -173,9 +174,18 @@ async fn process_cmd(
         }
         CmdInternal::Spawn(from_realm_id, new_realm_hint, target_id) => {
             realm_mngr_inbox
-                .send((from_realm_id, new_realm_hint, target_id))
+                .send(RealmManagerMsg::CreateNewRealm(from_realm_id, new_realm_hint, target_id))
                 .await
                 .unwrap();
+        }
+        CmdInternal::AddUserToRealm(realm_id, user_id) => {
+            let mut realm_members = realm_members.write().await;
+            realm_members
+                .entry(realm_id)
+                .and_modify(|members| {
+                    members.insert(user_id);
+                })
+                .or_insert_with(|| HashSet::from([user_id]));
         }
     }
 }
@@ -184,7 +194,8 @@ fn flatten_cmd(cmd: CmdInternal, accu: &mut Vec<CmdInternal>) {
     match cmd {
         CmdInternal::Cmds(cmds) => {
             for c in cmds {
-                flatten_cmd(c, accu);
+                let internal = c.internal;
+                flatten_cmd(internal, accu);
             }
         }
         _ => {
@@ -249,6 +260,7 @@ pub async fn new_realm(
     inbox
 }
 
+#[derive(Debug, Clone)]
 pub struct Realm {
     pub id: RealmId,
 }
@@ -262,10 +274,10 @@ impl Realm {
 
     pub fn batch<CS>(&self, cmds: CS) -> Cmd
     where
-        CS: for<'a> Into<&'a [CmdInternal]>,
+        CS: IntoIterator<Item = Cmd>,
     {
         Cmd {
-            internal: CmdInternal::Cmds(cmds.into().to_vec()),
+            internal: CmdInternal::Cmds(cmds.into_iter().collect()),
         }
     }
 
@@ -299,14 +311,20 @@ impl Realm {
         }
     }
 
-    pub fn spawn<F>(&self, hint: NewRealmHint, gotNewRealm: F) -> Cmd
+    pub fn spawn<F>(&self, hint: NewRealmHint, got_new_realm: F) -> Cmd
     where
-        F: FnOnce(RealmId) -> Msg,
+        F: FnOnce(Realm) -> Msg,
     {
         let realm_id = RealmId::Realm(Uuid::new_v4().to_string());
-        let to_backend = gotNewRealm(realm_id);
+        let new_realm = Realm { id: realm_id };
+        let to_backend = got_new_realm(new_realm);
         Cmd {
             internal: CmdInternal::Spawn(self.id.clone(), hint, to_backend),
+        }
+    }
+    pub fn add_user(&self, user_id: UserId) -> Cmd {
+        Cmd {
+            internal: CmdInternal::AddUserToRealm(self.id.clone(), user_id),
         }
     }
 }
@@ -380,7 +398,10 @@ impl Realms {
     }
 }
 
-type RealmManagerInbox = Sender<(RealmId, NewRealmHint, Msg)>;
+pub enum RealmManagerMsg {
+    CreateNewRealm(RealmId, NewRealmHint, Msg),
+}
+type RealmManagerInbox = Sender<RealmManagerMsg>;
 
 impl AppState {
     pub async fn is_member_of(&self, session_id: &SessionId, realm_id: &RealmId) -> bool {
@@ -420,7 +441,7 @@ impl AppState {
         let events_inbox_by_session_id = Arc::new(RwLock::new(HashMap::new()));
 
         let (realm_mngr_inbox, mut realm_mngr_receiver) =
-            mpsc::channel::<(RealmId, NewRealmHint, Msg)>(32);
+            mpsc::channel::<RealmManagerMsg>(32);
 
         let realms_ = realms.clone();
         let realm_members_ = realm_members.clone();
@@ -428,27 +449,31 @@ impl AppState {
         let sessions_by_user_ = sessions_by_user.clone();
         let realm_mngr_inbox_ = realm_mngr_inbox.clone();
         tokio::spawn(async move {
-            while let Some((src_realm_id, hint, msg)) = realm_mngr_receiver.recv().await {
-                let realm_id = realms_
-                    .write()
-                    .await
-                    .create_realm(
-                        realm_members_.clone(),
-                        events_inbox_by_session_id_.clone(),
-                        sessions_by_user_.clone(),
-                        realm_mngr_inbox_.clone(),
-                        Some(hint),
-                    )
-                    .await;
-                realm_members_
-                    .write()
-                    .await
-                    .insert(realm_id, HashSet::new());
-                realms_
-                    .read()
-                    .await
-                    .send_backend_msg(src_realm_id, msg)
-                    .await;
+            while let Some(msg) = realm_mngr_receiver.recv().await {
+                match msg {
+                    RealmManagerMsg::CreateNewRealm(src_realm_id, hint, msg) => {
+                        let realm_id = realms_
+                            .write()
+                            .await
+                            .create_realm(
+                                realm_members_.clone(),
+                                events_inbox_by_session_id_.clone(),
+                                sessions_by_user_.clone(),
+                                realm_mngr_inbox_.clone(),
+                                Some(hint),
+                            )
+                            .await;
+                        realm_members_
+                            .write()
+                            .await
+                            .insert(realm_id, HashSet::new());
+                        realms_
+                            .read()
+                            .await
+                            .send_backend_msg(src_realm_id, msg)
+                            .await;
+                    }
+                }
             }
         });
 

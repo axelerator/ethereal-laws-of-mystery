@@ -1,9 +1,13 @@
 use crate::users::UserId;
+use elm_rs::{Elm, ElmDecode, ElmEncode};
+use serde::{Deserialize, Serialize};
 
-pub enum Move {
+#[derive(Elm, ElmEncode, Deserialize, Debug, Clone)]
+pub enum ToGame {
     DrawFromPile,
 }
 
+#[derive(Elm, ElmDecode, Serialize, Debug, Clone)]
 pub enum Transition {
     IDraw(Card),
     TheyDraw,
@@ -20,14 +24,14 @@ impl Player {
     }
 }
 
-#[derive(Debug, Clone)]
-enum Suite {
+#[derive(Elm, ElmDecode, Serialize, Debug, Clone)]
+pub enum Suite {
     Red,
     Black,
 }
 
-#[derive(Debug, Clone)]
-struct Card {
+#[derive(Elm, ElmDecode, Serialize, Debug, Clone)]
+pub struct Card {
     number: u8,
     suite: Suite,
 }
@@ -65,6 +69,14 @@ impl Game {
             players,
             pile,
             discard,
+        }
+    }
+
+    pub fn update(self, msg: ToGame) -> (Game, Vec<(UserId, Transition)>) {
+        match msg {
+            ToGame::DrawFromPile => {
+                (self, vec![])
+            }
         }
     }
 
