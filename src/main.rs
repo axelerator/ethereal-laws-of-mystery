@@ -24,6 +24,7 @@ use tower_http::services::{ServeDir, ServeFile};
 use tracing_subscriber::{
     layer::SubscriberExt, registry, util::SubscriberInitExt, EnvFilter, FmtSubscriber,
 };
+use users::UserId;
 use webauthn_rs::prelude::Uuid;
 
 mod app;
@@ -133,6 +134,7 @@ pub async fn send(
     Json(envelope): Json<ToBackendEnvelope>,
 ) -> Result<impl IntoResponse, WebauthnError> {
     if let Some(session_id) = session.get::<Uuid>("id") {
+        let user_id = session.get::<UserId>("logged_in_user").unwrap();
         match envelope {
             ToBackendEnvelope::ForRealm(realm_id, to_backend) => {
                 if app_state.is_member_of(&session_id, &realm_id).await {
@@ -140,7 +142,7 @@ pub async fn send(
                         .realms
                         .read()
                         .await
-                        .send(realm_id, to_backend)
+                        .send(realm_id, to_backend, user_id, session_id)
                         .await;
                 } else {
                     tracing::warn!("{} not a member of {:?}", session_id, realm_id);

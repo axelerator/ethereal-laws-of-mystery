@@ -27,8 +27,8 @@ use tracing::{debug, error};
 pub enum Cmd {
     None,
     Cmds(Vec<Cmd>),
-    SendToUser(ToFrontend),
-    SendToSession(ToFrontend),
+    SendToUser(UserId, Vec<ToFrontend>),
+    SendToSession(SessionId, Vec<ToFrontend>),
     BroadcastToRealm(RealmId, Vec<ToFrontend>),
 }
 
@@ -51,8 +51,25 @@ impl Cmd {
         let msgs: Vec<ToFrontend> = msgs.into_iter().collect();
         Cmd::BroadcastToRealm(realm_id, msgs)
     }
+
+    pub fn to_user<'a, I>(user_id: UserId, msgs: I) -> Cmd
+    where
+        I: IntoIterator<Item = ToFrontend>,
+    {
+        let msgs: Vec<ToFrontend> = msgs.into_iter().collect();
+        Cmd::SendToUser(user_id, msgs)
+    }
+
+    pub fn to_session<'a, I>(session_id: SessionId, msgs: I) -> Cmd
+    where
+        I: IntoIterator<Item = ToFrontend>,
+    {
+        let msgs: Vec<ToFrontend> = msgs.into_iter().collect();
+        Cmd::SendToSession(session_id, msgs)
+    }
 }
 
+type SessionsByUser = Arc<RwLock<HashMap<UserId, HashSet<SessionId>>>>;
 type RealmMembers = Arc<RwLock<HashMap<RealmId, HashSet<SessionId>>>>;
 type InboxesBySession = Arc<RwLock<HashMap<SessionId, Sender<ToFrontendEnvelope>>>>;
 
@@ -66,19 +83,29 @@ pub struct AppState {
     pub connection: Arc<Mutex<Connection>>,
     pub realms: Arc<RwLock<Realms>>,
     pub realm_members: RealmMembers,
-    pub sessions_by_user: Arc<RwLock<HashMap<UserId, HashSet<SessionId>>>>,
+    pub sessions_by_user: SessionsByUser,
     pub events_inbox_by_session_id: InboxesBySession,
 }
 
 pub struct Realms {
-    pub realms: HashMap<RealmId, Sender<(ToBackend, RealmId)>>,
+    pub realms: HashMap<RealmId, Sender<(ToBackend, RealmId, UserId, SessionId)>>,
     id_seq: u32,
 }
 
 impl Realms {
-    pub async fn send(&self, realm_id: RealmId, to_backend: ToBackend) {
+    pub async fn send(
+        &self,
+        realm_id: RealmId,
+        to_backend: ToBackend,
+        user_id: UserId,
+        session_id: SessionId,
+    ) {
         if let Some(realm) = self.realms.get(&realm_id) {
-            if realm.send((to_backend, realm_id)).await.is_err() {
+            if realm
+                .send((to_backend, realm_id, user_id, session_id))
+                .await
+                .is_err()
+            {
                 todo!("track disconnected")
             }
         } else {
@@ -87,13 +114,50 @@ impl Realms {
     }
 }
 
-async fn process_cmd(cmd: Cmd, realm_members: &RealmMembers, inboxes: &InboxesBySession) {
+async fn process_cmd(
+    cmd: Cmd,
+    realm_members: &RealmMembers,
+    inboxes: &InboxesBySession,
+    sessions_by_user: &SessionsByUser,
+) {
     match cmd {
         Cmd::None => {}
         Cmd::Cmds(cmds) => panic!("Must have been flattened to avoid recursive async fn"),
-        Cmd::SendToUser(_) => todo!(),
-        Cmd::SendToSession(_) => todo!(),
-        Cmd::BroadcastToRealm(realm_id, to_fs) => {
+        Cmd::SendToUser(user_id, to_frontends) => {
+            let sessions_by_user = sessions_by_user.read().await;
+            let session_ids = sessions_by_user
+                .get(&user_id)
+                .map_or(Some(HashSet::new()), |s| Some(s.clone()))
+                .unwrap();
+
+            let inboxes = inboxes.read().await;
+            for session_id in session_ids {
+                if let Some(inbox) = inboxes.get(&session_id) {
+                    for to_f in to_frontends.iter() {
+                        inbox
+                            .send(ToFrontendEnvelope::FromRealm(to_f.clone()))
+                            .await
+                            .expect("Sending to inbox failed");
+                    }
+                } else {
+                    panic!("Inbox not found");
+                }
+            }
+        }
+        Cmd::SendToSession(session_id, to_frontends) => {
+            let inboxes = inboxes.read().await;
+            if let Some(inbox) = inboxes.get(&session_id) {
+                for to_f in to_frontends {
+                    inbox
+                        .send(ToFrontendEnvelope::FromRealm(to_f.clone()))
+                        .await
+                        .expect("Sending to inbox failed");
+                }
+            } else {
+                panic!("Inbox not found");
+            }
+        }
+        Cmd::BroadcastToRealm(realm_id, to_frontends) => {
             let realm_members = realm_members.read().await;
             let recipients = realm_members.get(&realm_id);
             match recipients {
@@ -105,7 +169,7 @@ async fn process_cmd(cmd: Cmd, realm_members: &RealmMembers, inboxes: &InboxesBy
                     let inboxes = inboxes.read().await;
                     for session_id in recipients {
                         if let Some(inbox) = inboxes.get(session_id) {
-                            for to_f in to_fs.iter() {
+                            for to_f in to_frontends.iter() {
                                 inbox
                                     .send(ToFrontendEnvelope::FromRealm(to_f.clone()))
                                     .await
@@ -137,14 +201,15 @@ fn flatten_cmd(cmd: Cmd, accu: &mut Vec<Cmd>) {
 pub async fn new_realm(
     realm_members: RealmMembers,
     inboxes: InboxesBySession,
-) -> Sender<(ToBackend, RealmId)> {
+    sessions_by_user: SessionsByUser,
+) -> Sender<(ToBackend, RealmId, UserId, SessionId)> {
     let (cmd_inbox, mut cmd_receiver) = mpsc::channel(32);
     tokio::spawn(async move {
         while let Some(cmd) = cmd_receiver.recv().await {
             let mut cmds = vec![];
             flatten_cmd(cmd, &mut cmds);
             for flat_cmd in cmds {
-                process_cmd(flat_cmd, &realm_members, &inboxes).await;
+                process_cmd(flat_cmd, &realm_members, &inboxes, &sessions_by_user).await;
             }
         }
     });
@@ -153,9 +218,9 @@ pub async fn new_realm(
     tokio::spawn(async move {
         let mut model = Model::new();
 
-        while let Some((message, realm_id)) = receiver.recv().await {
+        while let Some((message, realm_id, user_id, session_id)) = receiver.recv().await {
             debug!("Updating model for: {:?} with {:?}", realm_id, message);
-            let (updated_model, cmd) = model.update(message, realm_id);
+            let (updated_model, cmd) = model.update(message, realm_id, user_id, session_id);
             model = updated_model;
             if let Err(_) = cmd_inbox.send(cmd).await {
                 todo!("Client disconnected, stop sending");
@@ -177,8 +242,9 @@ impl Realms {
         &mut self,
         realm_members: RealmMembers,
         inboxes: InboxesBySession,
+        sessions_by_user: SessionsByUser,
     ) -> RealmId {
-        let inbox = new_realm(realm_members, inboxes).await;
+        let inbox = new_realm(realm_members, inboxes, sessions_by_user).await;
         let realm_id = self.id_seq;
         self.realms.insert(RealmId::Realm(realm_id), inbox);
         self.id_seq += 1;
@@ -189,8 +255,9 @@ impl Realms {
         &mut self,
         realm_members: RealmMembers,
         inboxes: InboxesBySession,
+        sessions_by_user: SessionsByUser,
     ) -> RealmId {
-        let inbox = new_realm(realm_members, inboxes).await;
+        let inbox = new_realm(realm_members, inboxes, sessions_by_user).await;
         self.realms.insert(RealmId::Lobby, inbox);
         RealmId::Lobby
     }
@@ -236,7 +303,11 @@ impl AppState {
         let lobby_id = realms
             .write()
             .await
-            .create_lobby(realm_members.clone(), events_inbox_by_session_id.clone())
+            .create_lobby(
+                realm_members.clone(),
+                events_inbox_by_session_id.clone(),
+                sessions_by_user.clone(),
+            )
             .await;
         realm_members.write().await.insert(lobby_id, HashSet::new());
 
