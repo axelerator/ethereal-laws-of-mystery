@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     hades::RealmId,
-    startup::Cmd,
+    startup::{Cmd, CmdInternal, Realm},
     users::{SessionId, UserId},
 };
 
@@ -30,7 +30,7 @@ impl Model {
     pub fn update(
         &self,
         msg: ToBackend,
-        realm_id: RealmId,
+        realm: Realm,
         _user_id: UserId,
         _session_id: SessionId,
     ) -> (Model, Cmd) {
@@ -40,18 +40,18 @@ impl Model {
                 (
                     Model { counter, ..*self },
                     // broadcast sends the message to everyone **in the realm**
-                    Cmd::broadcast(realm_id, [ToFrontend::UpdateCounter(counter)]),
+                    realm.broadcast([ToFrontend::UpdateCounter(counter)]),
                     // You can also send msgs to individual sessions (browser windows/tabs)
-                    //Cmd::to_session(_session_id, [ToFrontend::UpdateCounter(counter)]),
+                    // realm.to_session(_session_id, [ToFrontend::UpdateCounter(counter)]),
                     // Or to all sessions of a particular user
-                    //Cmd::to_user(_user_id, [ToFrontend::UpdateCounter(counter)]),
+                    // realm.to_user(_user_id, [ToFrontend::UpdateCounter(counter)]),
                 )
             }
             ToBackend::Decrement => {
                 let counter = self.counter - 1;
                 (
                     Model { counter, ..*self },
-                    Cmd::broadcast(realm_id, [ToFrontend::UpdateCounter(counter)]),
+                    realm.broadcast([ToFrontend::UpdateCounter(counter)]),
                 )
             }
         }

@@ -22,51 +22,18 @@ use tracing::{debug, error};
 // you can NOT change your rp_id (relying party id), without invalidating all
 // webauthn credentials. Remember, rp_id is derived from your URL origin, meaning
 // that it is your effective domain name.
+#[derive(Clone, Debug)]
+pub struct Cmd {
+    internal: CmdInternal,
+}
 
 #[derive(Clone, Debug)]
-pub enum Cmd {
+pub enum CmdInternal {
     None,
-    Cmds(Vec<Cmd>),
+    Cmds(Vec<CmdInternal>),
     SendToUser(UserId, Vec<ToFrontend>),
     SendToSession(SessionId, Vec<ToFrontend>),
     BroadcastToRealm(RealmId, Vec<ToFrontend>),
-}
-
-impl Cmd {
-    pub fn none() -> Cmd {
-        Cmd::None
-    }
-
-    pub fn batch<CS>(cmds: CS) -> Cmd
-    where
-        CS: for<'a> Into<&'a [Cmd]>,
-    {
-        Cmd::Cmds(cmds.into().to_vec())
-    }
-
-    pub fn broadcast<'a, I>(realm_id: RealmId, msgs: I) -> Cmd
-    where
-        I: IntoIterator<Item = ToFrontend>,
-    {
-        let msgs: Vec<ToFrontend> = msgs.into_iter().collect();
-        Cmd::BroadcastToRealm(realm_id, msgs)
-    }
-
-    pub fn to_user<'a, I>(user_id: UserId, msgs: I) -> Cmd
-    where
-        I: IntoIterator<Item = ToFrontend>,
-    {
-        let msgs: Vec<ToFrontend> = msgs.into_iter().collect();
-        Cmd::SendToUser(user_id, msgs)
-    }
-
-    pub fn to_session<'a, I>(session_id: SessionId, msgs: I) -> Cmd
-    where
-        I: IntoIterator<Item = ToFrontend>,
-    {
-        let msgs: Vec<ToFrontend> = msgs.into_iter().collect();
-        Cmd::SendToSession(session_id, msgs)
-    }
 }
 
 type SessionsByUser = Arc<RwLock<HashMap<UserId, HashSet<SessionId>>>>;
@@ -115,15 +82,15 @@ impl Realms {
 }
 
 async fn process_cmd(
-    cmd: Cmd,
+    cmd: CmdInternal,
     realm_members: &RealmMembers,
     inboxes: &InboxesBySession,
     sessions_by_user: &SessionsByUser,
 ) {
     match cmd {
-        Cmd::None => {}
-        Cmd::Cmds(cmds) => panic!("Must have been flattened to avoid recursive async fn"),
-        Cmd::SendToUser(user_id, to_frontends) => {
+        CmdInternal::None => {}
+        CmdInternal::Cmds(cmds) => panic!("Must have been flattened to avoid recursive async fn"),
+        CmdInternal::SendToUser(user_id, to_frontends) => {
             let sessions_by_user = sessions_by_user.read().await;
             let session_ids = sessions_by_user
                 .get(&user_id)
@@ -144,7 +111,7 @@ async fn process_cmd(
                 }
             }
         }
-        Cmd::SendToSession(session_id, to_frontends) => {
+        CmdInternal::SendToSession(session_id, to_frontends) => {
             let inboxes = inboxes.read().await;
             if let Some(inbox) = inboxes.get(&session_id) {
                 for to_f in to_frontends {
@@ -157,7 +124,7 @@ async fn process_cmd(
                 panic!("Inbox not found");
             }
         }
-        Cmd::BroadcastToRealm(realm_id, to_frontends) => {
+        CmdInternal::BroadcastToRealm(realm_id, to_frontends) => {
             let realm_members = realm_members.read().await;
             let recipients = realm_members.get(&realm_id);
             match recipients {
@@ -185,9 +152,9 @@ async fn process_cmd(
     }
 }
 
-fn flatten_cmd(cmd: Cmd, accu: &mut Vec<Cmd>) {
+fn flatten_cmd(cmd: CmdInternal, accu: &mut Vec<CmdInternal>) {
     match cmd {
-        Cmd::Cmds(cmds) => {
+        CmdInternal::Cmds(cmds) => {
             for c in cmds {
                 flatten_cmd(c, accu);
             }
@@ -203,9 +170,10 @@ pub async fn new_realm(
     inboxes: InboxesBySession,
     sessions_by_user: SessionsByUser,
 ) -> Sender<(ToBackend, RealmId, UserId, SessionId)> {
-    let (cmd_inbox, mut cmd_receiver) = mpsc::channel(32);
+    let (cmd_inbox, mut cmd_receiver) = mpsc::channel::<Cmd>(32);
     tokio::spawn(async move {
         while let Some(cmd) = cmd_receiver.recv().await {
+            let cmd = cmd.internal;
             let mut cmds = vec![];
             flatten_cmd(cmd, &mut cmds);
             for flat_cmd in cmds {
@@ -220,7 +188,8 @@ pub async fn new_realm(
 
         while let Some((message, realm_id, user_id, session_id)) = receiver.recv().await {
             debug!("Updating model for: {:?} with {:?}", realm_id, message);
-            let (updated_model, cmd) = model.update(message, realm_id, user_id, session_id);
+            let realm = Realm { id: realm_id };
+            let (updated_model, cmd) = model.update(message, realm, user_id, session_id);
             model = updated_model;
             if let Err(_) = cmd_inbox.send(cmd).await {
                 todo!("Client disconnected, stop sending");
@@ -228,6 +197,57 @@ pub async fn new_realm(
         }
     });
     inbox
+}
+
+pub struct Realm {
+    pub id: RealmId,
+}
+
+impl Realm {
+    pub fn nothing(&self) -> Cmd {
+        Cmd {
+            internal: CmdInternal::None,
+        }
+    }
+
+    pub fn batch<CS>(&self, cmds: CS) -> Cmd
+    where
+        CS: for<'a> Into<&'a [CmdInternal]>,
+    {
+        Cmd {
+            internal: CmdInternal::Cmds(cmds.into().to_vec()),
+        }
+    }
+
+    pub fn broadcast<'a, I>(&self, msgs: I) -> Cmd
+    where
+        I: IntoIterator<Item = ToFrontend>,
+    {
+        let msgs: Vec<ToFrontend> = msgs.into_iter().collect();
+        Cmd {
+            internal: CmdInternal::BroadcastToRealm(self.id.clone(), msgs),
+        }
+    }
+
+    pub fn to_user<'a, I>(&self, user_id: UserId, msgs: I) -> Cmd
+    where
+        I: IntoIterator<Item = ToFrontend>,
+    {
+        let msgs: Vec<ToFrontend> = msgs.into_iter().collect();
+        Cmd {
+            internal: CmdInternal::SendToUser(user_id, msgs),
+        }
+    }
+
+    pub fn to_session<'a, I>(&self, session_id: SessionId, msgs: I) -> Cmd
+    where
+        I: IntoIterator<Item = ToFrontend>,
+    {
+        let msgs: Vec<ToFrontend> = msgs.into_iter().collect();
+        Cmd {
+            internal: CmdInternal::SendToSession(session_id, msgs),
+        }
+    }
 }
 
 impl Realms {
