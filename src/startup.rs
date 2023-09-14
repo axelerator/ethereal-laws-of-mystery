@@ -5,7 +5,7 @@ use std::sync::Arc;
 use tokio::sync::{mpsc::Sender, Mutex, RwLock};
 use webauthn_rs::prelude::*;
 
-use crate::app::{Model, Msg};
+use crate::app::{Msg, NewRealmHint, RealmModel};
 use crate::app::{ToBackend, ToFrontend};
 use crate::hades::{RealmId, ToFrontendEnvelope};
 use crate::users::{SessionId, UserId};
@@ -34,7 +34,7 @@ pub enum CmdInternal {
     SendToUser(UserId, Vec<ToFrontend>),
     SendToSession(SessionId, Vec<ToFrontend>),
     BroadcastToRealm(RealmId, Vec<ToFrontend>),
-    Spawn(RealmId, Msg),
+    Spawn(RealmId, NewRealmHint, Msg),
 }
 
 type SessionsByUser = Arc<RwLock<HashMap<UserId, HashSet<SessionId>>>>;
@@ -171,22 +171,11 @@ async fn process_cmd(
                 }
             }
         }
-        CmdInternal::Spawn(from_realm_id, target_id) => {
+        CmdInternal::Spawn(from_realm_id, new_realm_hint, target_id) => {
             realm_mngr_inbox
-                .send((from_realm_id, target_id))
+                .send((from_realm_id, new_realm_hint, target_id))
                 .await
                 .unwrap();
-            /*
-            let realm_id = realms
-                .write()
-                .await
-                .create_realm(
-                    realm_members.clone(),
-                    inboxes.clone(),
-                    sessions_by_user.clone(),
-                )
-                .await;
-                */
         }
     }
 }
@@ -209,6 +198,7 @@ pub async fn new_realm(
     inboxes: InboxesBySession,
     sessions_by_user: SessionsByUser,
     realm_mngr_inbox: RealmManagerInbox,
+    hint: Option<NewRealmHint>,
 ) -> Sender<RealmThreadMsg> {
     let (cmd_inbox, mut cmd_receiver) = mpsc::channel::<Cmd>(32);
     tokio::spawn(async move {
@@ -231,7 +221,7 @@ pub async fn new_realm(
 
     let (inbox, mut receiver) = mpsc::channel(32);
     tokio::spawn(async move {
-        let mut model = Model::new();
+        let mut model = RealmModel::new(hint);
 
         while let Some(realm_thread_msg) = receiver.recv().await {
             match realm_thread_msg {
@@ -309,14 +299,14 @@ impl Realm {
         }
     }
 
-    pub fn spawn<F>(&self, gotNewRealm: F) -> Cmd
+    pub fn spawn<F>(&self, hint: NewRealmHint, gotNewRealm: F) -> Cmd
     where
         F: FnOnce(RealmId) -> Msg,
     {
         let realm_id = RealmId::Realm(Uuid::new_v4().to_string());
         let to_backend = gotNewRealm(realm_id);
         Cmd {
-            internal: CmdInternal::Spawn(self.id.clone(), to_backend),
+            internal: CmdInternal::Spawn(self.id.clone(), hint, to_backend),
         }
     }
 }
@@ -336,8 +326,16 @@ impl Realms {
         inboxes: InboxesBySession,
         sessions_by_user: SessionsByUser,
         realm_mngr_inbox: RealmManagerInbox,
+        hint: Option<NewRealmHint>,
     ) {
-        let inbox = new_realm(realm_members, inboxes, sessions_by_user, realm_mngr_inbox).await;
+        let inbox = new_realm(
+            realm_members,
+            inboxes,
+            sessions_by_user,
+            realm_mngr_inbox,
+            hint,
+        )
+        .await;
         self.realms.insert(id.clone(), inbox);
     }
 
@@ -347,6 +345,7 @@ impl Realms {
         inboxes: InboxesBySession,
         sessions_by_user: SessionsByUser,
         realm_mngr_inbox: RealmManagerInbox,
+        hint: Option<NewRealmHint>,
     ) -> RealmId {
         let realm_id = RealmId::Realm(Uuid::new_v4().to_string());
         self.create_realm_(
@@ -355,6 +354,7 @@ impl Realms {
             inboxes,
             sessions_by_user,
             realm_mngr_inbox,
+            hint,
         )
         .await;
         realm_id
@@ -374,12 +374,13 @@ impl Realms {
             inboxes,
             sessions_by_user,
             realm_mngr_inbox,
+            None,
         )
         .await;
     }
 }
 
-type RealmManagerInbox = Sender<(RealmId, Msg)>;
+type RealmManagerInbox = Sender<(RealmId, NewRealmHint, Msg)>;
 
 impl AppState {
     pub async fn is_member_of(&self, session_id: &SessionId, realm_id: &RealmId) -> bool {
@@ -418,7 +419,8 @@ impl AppState {
         let sessions_by_user = Arc::new(RwLock::new(HashMap::new()));
         let events_inbox_by_session_id = Arc::new(RwLock::new(HashMap::new()));
 
-        let (realm_mngr_inbox, mut realm_mngr_receiver) = mpsc::channel::<(RealmId, Msg)>(32);
+        let (realm_mngr_inbox, mut realm_mngr_receiver) =
+            mpsc::channel::<(RealmId, NewRealmHint, Msg)>(32);
 
         let realms_ = realms.clone();
         let realm_members_ = realm_members.clone();
@@ -426,7 +428,7 @@ impl AppState {
         let sessions_by_user_ = sessions_by_user.clone();
         let realm_mngr_inbox_ = realm_mngr_inbox.clone();
         tokio::spawn(async move {
-            while let Some((src_realm_id, msg)) = realm_mngr_receiver.recv().await {
+            while let Some((src_realm_id, hint, msg)) = realm_mngr_receiver.recv().await {
                 let realm_id = realms_
                     .write()
                     .await
@@ -435,6 +437,7 @@ impl AppState {
                         events_inbox_by_session_id_.clone(),
                         sessions_by_user_.clone(),
                         realm_mngr_inbox_.clone(),
+                        Some(hint),
                     )
                     .await;
                 realm_members_
