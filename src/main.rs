@@ -142,7 +142,7 @@ pub async fn send(
                         .realms
                         .read()
                         .await
-                        .send(realm_id, to_backend, user_id, session_id)
+                        .send_from_frontend(realm_id, to_backend, user_id, session_id)
                         .await;
                 } else {
                     tracing::warn!("{} not a member of {:?}", session_id, realm_id);

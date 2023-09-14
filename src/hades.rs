@@ -1,6 +1,7 @@
 use elm_rs::{Elm, ElmDecode, ElmEncode};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
+use webauthn_rs::prelude::Uuid;
 
 use crate::app::{ToBackend, ToFrontend};
 
@@ -8,7 +9,7 @@ use crate::app::{ToBackend, ToFrontend};
 #[derive(Elm, ElmDecode, ElmEncode, Deserialize, Serialize, PartialEq, Eq, Hash, Debug, Clone)]
 pub enum RealmId {
     Lobby,
-    Realm(u32),
+    Realm(String),
 }
 
 #[derive(Elm, ElmEncode, Deserialize, Debug)]

@@ -30,7 +30,7 @@ resultDecoder errDecoder okDecoder =
 
 type RealmId
     = Lobby
-    | Realm (Int)
+    | Realm (String)
 
 
 realmIdEncoder : RealmId -> Json.Encode.Value
@@ -39,7 +39,7 @@ realmIdEncoder enum =
         Lobby ->
             Json.Encode.string "Lobby"
         Realm inner ->
-            Json.Encode.object [ ( "Realm", Json.Encode.int inner ) ]
+            Json.Encode.object [ ( "Realm", Json.Encode.string inner ) ]
 
 type ToBackendEnvelope
     = ForRealm (RealmId) (ToBackend)
@@ -76,7 +76,7 @@ realmIdDecoder =
                         unexpected ->
                             Json.Decode.fail <| "Unexpected variant " ++ unexpected
                 )
-        , Json.Decode.map Realm (Json.Decode.field "Realm" (Json.Decode.int))
+        , Json.Decode.map Realm (Json.Decode.field "Realm" (Json.Decode.string))
         ]
 
 type ToFrontendEnvelope
@@ -111,11 +111,13 @@ toFrontendEnvelopeDecoder =
 
 type ToFrontend
     = UpdateCounter (Int)
+    | NewRealm (RealmId)
 
 
 toFrontendDecoder : Json.Decode.Decoder ToFrontend
 toFrontendDecoder = 
     Json.Decode.oneOf
         [ Json.Decode.map UpdateCounter (Json.Decode.field "UpdateCounter" (Json.Decode.int))
+        , Json.Decode.map NewRealm (Json.Decode.field "NewRealm" (realmIdDecoder))
         ]
 
