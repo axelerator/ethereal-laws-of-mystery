@@ -9,9 +9,30 @@
 .card {
   width: 150px;
   height: 220px;
-  border: 1px solid red;
+  border: 1px solid #111;
   position: absolute;
   background-color: #999;
+  padding: 5em 3em;
+  border-radius: 5px;
   box-shadow: 2px 2px 2px 1px rgba(0, 0, 0, 0.2);
 }
 
+.card > .big {
+  position: absolute;
+  top: 15px;
+  left: 40px;
+  color: #444;
+  font-size: 7em;
+}
+
+.card > .mini {
+  position: absolute;
+  top: 0;
+  right: 0.3em;
+  color: #444;
+  font-size: 2em;
+}
+
+.card.hand:hover {
+  z-index: 200 !important;
+}

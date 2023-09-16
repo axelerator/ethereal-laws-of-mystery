@@ -1,11 +1,10 @@
 use elm_rs::{Elm, ElmDecode, ElmEncode};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
-use webauthn_rs::prelude::Uuid;
 
 use crate::{
     app::{ToBackend, ToFrontend, ToFrontendLobby, ToLobby},
-    game::{Card, Suite, ToGame, Transition},
+    game::{CardContent, ToGame, Transition, Operator},
 };
 
 // None = Lobby
@@ -35,7 +34,7 @@ pub fn write_elm_types() {
         // generates types and encoders for types implementing ElmEncoder
         encoders: [RealmId, ToBackendEnvelope, ToBackend, ToLobby, ToGame],
         // generates types and decoders for types implementing ElmDecoder
-        decoders: [RealmId, ToFrontendEnvelope, ToFrontend, ToFrontendLobby, Transition, Card, Suite],
+        decoders: [RealmId, ToFrontendEnvelope, ToFrontend, ToFrontendLobby, Transition, CardContent, Operator],
         // generates types and functions for forming queries for types implementing ElmQuery
         queries: [],
         // generates types and functions for forming queries for types implementing ElmQueryField

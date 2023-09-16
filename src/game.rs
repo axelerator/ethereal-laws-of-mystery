@@ -1,6 +1,8 @@
 use crate::users::UserId;
 use elm_rs::{Elm, ElmDecode, ElmEncode};
 use serde::{Deserialize, Serialize};
+use rand::seq::SliceRandom;
+
 
 #[derive(Elm, ElmEncode, Deserialize, Debug, Clone)]
 pub enum ToGame {
@@ -9,13 +11,13 @@ pub enum ToGame {
 
 #[derive(Elm, ElmDecode, Serialize, Debug, Clone)]
 pub enum Transition {
-    IDraw(Card),
+    IDraw(CardContent),
     TheyDraw,
 }
 
 pub struct Player {
     id: UserId,
-    hand: Vec<Card>,
+    hand: Vec<CardContent>,
 }
 
 impl Player {
@@ -25,35 +27,38 @@ impl Player {
 }
 
 #[derive(Elm, ElmDecode, Serialize, Debug, Clone)]
-pub enum Suite {
-    Red,
-    Black,
+pub enum Operator {
+    Plus,
+    Minus,
+    Times,
 }
 
+
 #[derive(Elm, ElmDecode, Serialize, Debug, Clone)]
-pub struct Card {
-    number: u8,
-    suite: Suite,
+pub enum CardContent {
+    NumberCard(u8),
+    OperatorCard(Operator),
+    SwapOperators
 }
 
 pub struct Game {
     players: Vec<Player>,
-    pile: Vec<Card>,
-    discard: Vec<Card>,
+    pile: Vec<CardContent>,
+    discard: Vec<CardContent>,
 }
 
-fn deck() -> Vec<Card> {
+fn deck() -> Vec<CardContent> {
     let mut cards = vec![];
-    for number in 1..10 {
-        cards.push(Card {
-            suite: Suite::Red,
-            number,
-        });
-        cards.push(Card {
-            suite: Suite::Black,
-            number,
-        });
+    for number in 0..10 {
+        cards.push(CardContent::NumberCard(number));
+        cards.push(CardContent::NumberCard(number));
+        cards.push(CardContent::OperatorCard(Operator::Plus));
+        cards.push(CardContent::OperatorCard(Operator::Minus));
+        cards.push(CardContent::OperatorCard(Operator::Times));
+        cards.push(CardContent::SwapOperators);
     }
+    let mut rng = rand::thread_rng();
+    cards.shuffle(&mut rng);
     cards
 }
 
@@ -76,13 +81,13 @@ impl Game {
         match msg {
             ToGame::DrawFromPile => {
                 let user = self.players[0].id;
-                self.draw(user, 2)
+                self.draw(user, 1)
             }
         }
     }
 
     pub fn draw(mut self, user: UserId, n: usize) -> GameChanger {
-        let drawn_cards: Vec<Card> = self.pile.drain(0..n).collect();
+        let drawn_cards: Vec<CardContent> = self.pile.drain(0..n).collect();
         let mut transitions = vec![];
         for drawn_card in drawn_cards.iter() {
             for player in self.players.iter() {

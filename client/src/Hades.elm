@@ -165,14 +165,14 @@ toFrontendLobbyDecoder =
         ]
 
 type Transition
-    = IDraw (Card)
+    = IDraw (CardContent)
     | TheyDraw
 
 
 transitionDecoder : Json.Decode.Decoder Transition
 transitionDecoder = 
     Json.Decode.oneOf
-        [ Json.Decode.map IDraw (Json.Decode.field "IDraw" (cardDecoder))
+        [ Json.Decode.map IDraw (Json.Decode.field "IDraw" (cardContentDecoder))
         , Json.Decode.string
             |> Json.Decode.andThen
                 (\x ->
@@ -184,33 +184,43 @@ transitionDecoder =
                 )
         ]
 
-type alias Card =
-    { number : Int
-    , suite : Suite
-    }
+type CardContent
+    = NumberCard (Int)
+    | OperatorCard (Operator)
+    | SwapOperators
 
 
-cardDecoder : Json.Decode.Decoder Card
-cardDecoder =
-    Json.Decode.succeed Card
-        |> Json.Decode.andThen (\x -> Json.Decode.map x (Json.Decode.field "number" (Json.Decode.int)))
-        |> Json.Decode.andThen (\x -> Json.Decode.map x (Json.Decode.field "suite" (suiteDecoder)))
+cardContentDecoder : Json.Decode.Decoder CardContent
+cardContentDecoder = 
+    Json.Decode.oneOf
+        [ Json.Decode.map NumberCard (Json.Decode.field "NumberCard" (Json.Decode.int))
+        , Json.Decode.map OperatorCard (Json.Decode.field "OperatorCard" (operatorDecoder))
+        , Json.Decode.string
+            |> Json.Decode.andThen
+                (\x ->
+                    case x of
+                        "SwapOperators" ->
+                            Json.Decode.succeed SwapOperators
+                        unexpected ->
+                            Json.Decode.fail <| "Unexpected variant " ++ unexpected
+                )
+        ]
+
+type Operator
+    = Plus
+    | Minus
+    | Times
 
 
-type Suite
-    = Red
-    | Black
-
-
-suiteDecoder : Json.Decode.Decoder Suite
-suiteDecoder = 
+operatorDecoder : Json.Decode.Decoder Operator
+operatorDecoder = 
     Json.Decode.oneOf
         [ Json.Decode.string
             |> Json.Decode.andThen
                 (\x ->
                     case x of
-                        "Red" ->
-                            Json.Decode.succeed Red
+                        "Plus" ->
+                            Json.Decode.succeed Plus
                         unexpected ->
                             Json.Decode.fail <| "Unexpected variant " ++ unexpected
                 )
@@ -218,8 +228,17 @@ suiteDecoder =
             |> Json.Decode.andThen
                 (\x ->
                     case x of
-                        "Black" ->
-                            Json.Decode.succeed Black
+                        "Minus" ->
+                            Json.Decode.succeed Minus
+                        unexpected ->
+                            Json.Decode.fail <| "Unexpected variant " ++ unexpected
+                )
+        , Json.Decode.string
+            |> Json.Decode.andThen
+                (\x ->
+                    case x of
+                        "Times" ->
+                            Json.Decode.succeed Times
                         unexpected ->
                             Json.Decode.fail <| "Unexpected variant " ++ unexpected
                 )
