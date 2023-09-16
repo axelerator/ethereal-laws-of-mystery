@@ -8,8 +8,8 @@ use webauthn_rs::prelude::*;
 use crate::app::{Msg, NewRealmHint, RealmModel};
 use crate::app::{ToBackend, ToFrontend};
 use crate::hades::{RealmId, ToFrontendEnvelope};
+use crate::users::Users;
 use crate::users::{SessionId, UserId};
-use crate::{hades::ToBackendEnvelope, users::Users};
 use tokio::sync::mpsc;
 use tracing::{debug, error};
 
@@ -34,7 +34,7 @@ pub enum CmdInternal {
     SendToUser(UserId, Vec<ToFrontend>),
     SendToSession(SessionId, Vec<ToFrontend>),
     BroadcastToRealm(RealmId, Vec<ToFrontend>),
-    Spawn(RealmId, NewRealmHint, Msg),
+    Spawn(RealmId, RealmId, NewRealmHint, Msg),
     AddUserToRealm(RealmId, UserId),
 }
 
@@ -59,6 +59,7 @@ pub struct AppState {
 pub enum RealmThreadMsg {
     FromFrontend(ToBackend, RealmId, UserId, SessionId),
     BackendMsg(Msg, RealmId),
+    SendJoin(RealmId, UserId, SessionId),
 }
 
 pub struct Realms {
@@ -74,27 +75,29 @@ impl Realms {
         user_id: UserId,
         session_id: SessionId,
     ) {
-        if let Some(realm) = self.realms.get(&realm_id) {
-            if realm
-                .send(RealmThreadMsg::FromFrontend(
-                    to_backend, realm_id, user_id, session_id,
-                ))
-                .await
-                .is_err()
-            {
-                todo!("track disconnected")
-            }
-        } else {
-            error!("Realm {:?} not found!", realm_id);
-        }
+        self.send_msg(
+            realm_id.clone(),
+            RealmThreadMsg::FromFrontend(to_backend, realm_id, user_id, session_id),
+        )
+        .await;
     }
+
     pub async fn send_backend_msg(&self, realm_id: RealmId, msg: Msg) {
+        self.send_msg(realm_id.clone(), RealmThreadMsg::BackendMsg(msg, realm_id))
+            .await
+    }
+
+    pub async fn send_joined_msg(&self, realm_id: RealmId, user_id: UserId, session_id: SessionId) {
+        self.send_msg(
+            realm_id.clone(),
+            RealmThreadMsg::SendJoin(realm_id, user_id, session_id),
+        )
+        .await
+    }
+
+    async fn send_msg(&self, realm_id: RealmId, msg: RealmThreadMsg) {
         if let Some(realm) = self.realms.get(&realm_id) {
-            if realm
-                .send(RealmThreadMsg::BackendMsg(msg, realm_id))
-                .await
-                .is_err()
-            {
+            if realm.send(msg).await.is_err() {
                 todo!("track disconnected")
             }
         } else {
@@ -172,9 +175,14 @@ async fn process_cmd(
                 }
             }
         }
-        CmdInternal::Spawn(from_realm_id, new_realm_hint, target_id) => {
+        CmdInternal::Spawn(from_realm_id, target_realm_id, new_realm_hint, target_id) => {
             realm_mngr_inbox
-                .send(RealmManagerMsg::CreateNewRealm(from_realm_id, new_realm_hint, target_id))
+                .send(RealmManagerMsg::CreateNewRealm(
+                    from_realm_id,
+                    target_realm_id,
+                    new_realm_hint,
+                    target_id,
+                ))
                 .await
                 .unwrap();
         }
@@ -243,7 +251,7 @@ pub async fn new_realm(
                         model.update_from_frontend(message, realm, user_id, session_id);
                     model = updated_model;
                     if let Err(_) = cmd_inbox.send(cmd).await {
-                        todo!("Client disconnected, stop sending");
+                        error!("Client disconnected, stop sending");
                     }
                 }
                 RealmThreadMsg::BackendMsg(msg, realm_id) => {
@@ -252,6 +260,17 @@ pub async fn new_realm(
                     model = updated_model;
                     if let Err(_) = cmd_inbox.send(cmd).await {
                         todo!("Client disconnected, stop sending");
+                    }
+                }
+                RealmThreadMsg::SendJoin(realm_id, user_id, session_id) => {
+                    let realm = Realm { id: realm_id };
+                    let msg = model.joined(user_id, session_id);
+                    if let Some(msg) = msg {
+                        let (updated_model, cmd) = model.update(msg, realm);
+                        model = updated_model;
+                        if let Err(_) = cmd_inbox.send(cmd).await {
+                            todo!("Client disconnected, stop sending");
+                        }
                     }
                 }
             }
@@ -316,10 +335,12 @@ impl Realm {
         F: FnOnce(Realm) -> Msg,
     {
         let realm_id = RealmId::Realm(Uuid::new_v4().to_string());
-        let new_realm = Realm { id: realm_id };
+        let new_realm = Realm {
+            id: realm_id.clone(),
+        };
         let to_backend = got_new_realm(new_realm);
         Cmd {
-            internal: CmdInternal::Spawn(self.id.clone(), hint, to_backend),
+            internal: CmdInternal::Spawn(self.id.clone(), realm_id, hint, to_backend),
         }
     }
     pub fn add_user(&self, user_id: UserId) -> Cmd {
@@ -337,7 +358,7 @@ impl Realms {
         }
     }
 
-    async fn create_realm_(
+    pub async fn create_realm_with_id(
         &mut self,
         id: &RealmId,
         realm_members: RealmMembers,
@@ -354,6 +375,7 @@ impl Realms {
             hint,
         )
         .await;
+        debug!("Adding new realm: {:?}", id);
         self.realms.insert(id.clone(), inbox);
     }
 
@@ -366,7 +388,7 @@ impl Realms {
         hint: Option<NewRealmHint>,
     ) -> RealmId {
         let realm_id = RealmId::Realm(Uuid::new_v4().to_string());
-        self.create_realm_(
+        self.create_realm_with_id(
             &realm_id,
             realm_members,
             inboxes,
@@ -386,7 +408,7 @@ impl Realms {
         realm_mngr_inbox: RealmManagerInbox,
     ) {
         let id = RealmId::Lobby;
-        self.create_realm_(
+        self.create_realm_with_id(
             &id,
             realm_members,
             inboxes,
@@ -399,7 +421,7 @@ impl Realms {
 }
 
 pub enum RealmManagerMsg {
-    CreateNewRealm(RealmId, NewRealmHint, Msg),
+    CreateNewRealm(RealmId, RealmId, NewRealmHint, Msg),
 }
 type RealmManagerInbox = Sender<RealmManagerMsg>;
 
@@ -440,8 +462,7 @@ impl AppState {
         let sessions_by_user = Arc::new(RwLock::new(HashMap::new()));
         let events_inbox_by_session_id = Arc::new(RwLock::new(HashMap::new()));
 
-        let (realm_mngr_inbox, mut realm_mngr_receiver) =
-            mpsc::channel::<RealmManagerMsg>(32);
+        let (realm_mngr_inbox, mut realm_mngr_receiver) = mpsc::channel::<RealmManagerMsg>(32);
 
         let realms_ = realms.clone();
         let realm_members_ = realm_members.clone();
@@ -451,11 +472,13 @@ impl AppState {
         tokio::spawn(async move {
             while let Some(msg) = realm_mngr_receiver.recv().await {
                 match msg {
-                    RealmManagerMsg::CreateNewRealm(src_realm_id, hint, msg) => {
-                        let realm_id = realms_
+                    RealmManagerMsg::CreateNewRealm(src_realm_id, target_realm_id, hint, msg) => {
+                        debug!("Spawning new realm from {:?} ", src_realm_id);
+                        realms_
                             .write()
                             .await
-                            .create_realm(
+                            .create_realm_with_id(
+                                &target_realm_id,
                                 realm_members_.clone(),
                                 events_inbox_by_session_id_.clone(),
                                 sessions_by_user_.clone(),
@@ -466,7 +489,7 @@ impl AppState {
                         realm_members_
                             .write()
                             .await
-                            .insert(realm_id, HashSet::new());
+                            .insert(target_realm_id, HashSet::new());
                         realms_
                             .read()
                             .await

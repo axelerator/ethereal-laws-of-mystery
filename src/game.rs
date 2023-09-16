@@ -72,10 +72,11 @@ impl Game {
         }
     }
 
-    pub fn update(self, msg: ToGame) -> (Game, Vec<(UserId, Transition)>) {
+    pub fn update(self, msg: ToGame) -> GameChanger {
         match msg {
             ToGame::DrawFromPile => {
-                (self, vec![])
+                let user = self.players[0].id;
+                self.draw(user, 2)
             }
         }
     }

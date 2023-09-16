@@ -4,7 +4,7 @@ use std::fs::File;
 use webauthn_rs::prelude::Uuid;
 
 use crate::{
-    app::{ToBackend, ToFrontend, ToLobby},
+    app::{ToBackend, ToFrontend, ToFrontendLobby, ToLobby},
     game::{Card, Suite, ToGame, Transition},
 };
 
@@ -18,6 +18,7 @@ pub enum RealmId {
 #[derive(Elm, ElmEncode, Deserialize, Debug)]
 pub enum ToBackendEnvelope {
     ForRealm(RealmId, ToBackend),
+    EnterRealm(RealmId),
 }
 
 #[derive(Elm, ElmDecode, Serialize, Clone, Debug)]
@@ -34,7 +35,7 @@ pub fn write_elm_types() {
         // generates types and encoders for types implementing ElmEncoder
         encoders: [RealmId, ToBackendEnvelope, ToBackend, ToLobby, ToGame],
         // generates types and decoders for types implementing ElmDecoder
-        decoders: [RealmId, ToFrontendEnvelope, ToFrontend, Transition, Card, Suite],
+        decoders: [RealmId, ToFrontendEnvelope, ToFrontend, ToFrontendLobby, Transition, Card, Suite],
         // generates types and functions for forming queries for types implementing ElmQuery
         queries: [],
         // generates types and functions for forming queries for types implementing ElmQueryField

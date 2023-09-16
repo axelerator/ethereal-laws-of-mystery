@@ -1,6 +1,6 @@
 use crate::{
     hades::{write_elm_types, ToFrontendEnvelope},
-    startup::AppState,
+    startup::{AppState, RealmThreadMsg},
 };
 use axum::{
     extract::Extension,
@@ -17,10 +17,11 @@ use futures::stream::Stream;
 use hades::ToBackendEnvelope;
 use rand::thread_rng;
 use rand::Rng;
-use std::{convert::Infallible, net::SocketAddr, time::Duration};
+use std::{collections::HashSet, convert::Infallible, net::SocketAddr, time::Duration};
 use tokio::sync::mpsc;
 use tokio_stream::{wrappers::ReceiverStream, StreamExt as _};
 use tower_http::services::{ServeDir, ServeFile};
+use tracing::debug;
 use tracing_subscriber::{
     layer::SubscriberExt, registry, util::SubscriberInitExt, EnvFilter, FmtSubscriber,
 };
@@ -148,6 +149,25 @@ pub async fn send(
                 } else {
                     tracing::warn!("{} not a member of {:?}", session_id, realm_id);
                 }
+            }
+            ToBackendEnvelope::EnterRealm(realm_id) => {
+                debug!(
+                    "User({user_id}) with Session({session_id}) entering: {:?}",
+                    realm_id
+                );
+                let mut realm_members = app_state.realm_members.write().await;
+                realm_members
+                    .entry(realm_id.clone())
+                    .and_modify(|members| {
+                        members.insert(session_id);
+                    })
+                    .or_insert_with(|| HashSet::from([user_id]));
+                app_state
+                    .realms
+                    .read()
+                    .await
+                    .send_joined_msg(realm_id, user_id, session_id)
+                    .await;
             }
         }
         Ok(StatusCode::OK)

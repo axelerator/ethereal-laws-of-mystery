@@ -43,6 +43,7 @@ realmIdEncoder enum =
 
 type ToBackendEnvelope
     = ForRealm (RealmId) (ToBackend)
+    | EnterRealm (RealmId)
 
 
 toBackendEnvelopeEncoder : ToBackendEnvelope -> Json.Encode.Value
@@ -50,19 +51,47 @@ toBackendEnvelopeEncoder enum =
     case enum of
         ForRealm t0 t1 ->
             Json.Encode.object [ ( "ForRealm", Json.Encode.list identity [ realmIdEncoder t0, toBackendEncoder t1 ] ) ]
+        EnterRealm inner ->
+            Json.Encode.object [ ( "EnterRealm", realmIdEncoder inner ) ]
 
 type ToBackend
-    = Increment
-    | Decrement
+    = ForLobby (ToLobby)
+    | ForGame (ToGame)
 
 
 toBackendEncoder : ToBackend -> Json.Encode.Value
 toBackendEncoder enum =
     case enum of
+        ForLobby inner ->
+            Json.Encode.object [ ( "ForLobby", toLobbyEncoder inner ) ]
+        ForGame inner ->
+            Json.Encode.object [ ( "ForGame", toGameEncoder inner ) ]
+
+type ToLobby
+    = Increment
+    | Decrement
+    | StartGame
+
+
+toLobbyEncoder : ToLobby -> Json.Encode.Value
+toLobbyEncoder enum =
+    case enum of
         Increment ->
             Json.Encode.string "Increment"
         Decrement ->
             Json.Encode.string "Decrement"
+        StartGame ->
+            Json.Encode.string "StartGame"
+
+type ToGame
+    = DrawFromPile
+
+
+toGameEncoder : ToGame -> Json.Encode.Value
+toGameEncoder enum =
+    case enum of
+        DrawFromPile ->
+            Json.Encode.string "DrawFromPile"
 
 realmIdDecoder : Json.Decode.Decoder RealmId
 realmIdDecoder = 
@@ -110,14 +139,89 @@ toFrontendEnvelopeDecoder =
         ]
 
 type ToFrontend
-    = UpdateCounter (Int)
-    | NewRealm (RealmId)
+    = ToLobbyFrontend (ToFrontendLobby)
+    | ToGameFrontend (Transition)
+    | EnteredGame (RealmId)
 
 
 toFrontendDecoder : Json.Decode.Decoder ToFrontend
 toFrontendDecoder = 
     Json.Decode.oneOf
+        [ Json.Decode.map ToLobbyFrontend (Json.Decode.field "ToLobbyFrontend" (toFrontendLobbyDecoder))
+        , Json.Decode.map ToGameFrontend (Json.Decode.field "ToGameFrontend" (transitionDecoder))
+        , Json.Decode.map EnteredGame (Json.Decode.field "EnteredGame" (realmIdDecoder))
+        ]
+
+type ToFrontendLobby
+    = UpdateCounter (Int)
+    | GameStart (RealmId)
+
+
+toFrontendLobbyDecoder : Json.Decode.Decoder ToFrontendLobby
+toFrontendLobbyDecoder = 
+    Json.Decode.oneOf
         [ Json.Decode.map UpdateCounter (Json.Decode.field "UpdateCounter" (Json.Decode.int))
-        , Json.Decode.map NewRealm (Json.Decode.field "NewRealm" (realmIdDecoder))
+        , Json.Decode.map GameStart (Json.Decode.field "GameStart" (realmIdDecoder))
+        ]
+
+type Transition
+    = IDraw (Card)
+    | TheyDraw
+
+
+transitionDecoder : Json.Decode.Decoder Transition
+transitionDecoder = 
+    Json.Decode.oneOf
+        [ Json.Decode.map IDraw (Json.Decode.field "IDraw" (cardDecoder))
+        , Json.Decode.string
+            |> Json.Decode.andThen
+                (\x ->
+                    case x of
+                        "TheyDraw" ->
+                            Json.Decode.succeed TheyDraw
+                        unexpected ->
+                            Json.Decode.fail <| "Unexpected variant " ++ unexpected
+                )
+        ]
+
+type alias Card =
+    { number : Int
+    , suite : Suite
+    }
+
+
+cardDecoder : Json.Decode.Decoder Card
+cardDecoder =
+    Json.Decode.succeed Card
+        |> Json.Decode.andThen (\x -> Json.Decode.map x (Json.Decode.field "number" (Json.Decode.int)))
+        |> Json.Decode.andThen (\x -> Json.Decode.map x (Json.Decode.field "suite" (suiteDecoder)))
+
+
+type Suite
+    = Red
+    | Black
+
+
+suiteDecoder : Json.Decode.Decoder Suite
+suiteDecoder = 
+    Json.Decode.oneOf
+        [ Json.Decode.string
+            |> Json.Decode.andThen
+                (\x ->
+                    case x of
+                        "Red" ->
+                            Json.Decode.succeed Red
+                        unexpected ->
+                            Json.Decode.fail <| "Unexpected variant " ++ unexpected
+                )
+        , Json.Decode.string
+            |> Json.Decode.andThen
+                (\x ->
+                    case x of
+                        "Black" ->
+                            Json.Decode.succeed Black
+                        unexpected ->
+                            Json.Decode.fail <| "Unexpected variant " ++ unexpected
+                )
         ]
 

@@ -1,11 +1,10 @@
 module WebAuthn exposing (Model, Msg, initOnLogin, update, view)
 
 import Html exposing (Html, button, div, input, text)
-import Html.Attributes exposing (value)
+import Html.Attributes exposing (value, class)
 import Html.Events exposing (onClick, onInput)
 import Http
 import Html exposing (a)
-
 
 type alias WithWebAuthnPort msg =
     { webauthn : ( String, String ) -> Cmd msg
@@ -118,6 +117,7 @@ view model =
                 , a [onClick GotoSignup] [text "goto signup"]
                 , a [onClick Test] [text "test"]
                 ]
+
 
 
 registerStart : String -> Cmd Msg

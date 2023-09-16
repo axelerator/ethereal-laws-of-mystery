@@ -11,6 +11,7 @@ use crate::{
 #[derive(Debug, Clone)]
 pub enum Msg {
     NewGameStarted(Realm, Vec<UserId>),
+    PlayerJoined(UserId),
 }
 
 #[derive(Elm, ElmEncode, Deserialize, Debug, Clone)]
@@ -21,14 +22,20 @@ pub enum ToBackend {
 
 #[derive(Elm, ElmDecode, Serialize, Debug, Clone)]
 pub enum ToFrontend {
+    ToLobbyFrontend(ToFrontendLobby),
+    ToGameFrontend(Transition),
+    EnteredGame(RealmId),
+}
+
+#[derive(Elm, ElmDecode, Serialize, Debug, Clone)]
+pub enum ToFrontendLobby {
     UpdateCounter(i32),
-    NewRealm(RealmId),
-    ToGame(Transition),
+    GameStart(RealmId),
 }
 
 #[derive(Debug, Clone)]
 pub enum NewRealmHint {
-    Game,
+    Game(Vec<UserId>),
 }
 
 pub enum RealmModel {
@@ -51,20 +58,31 @@ impl RealmModel {
     pub fn new(hint: Option<NewRealmHint>) -> RealmModel {
         match hint {
             None => RealmModel::Lobby(Lobby { counter: 0 }),
-            Some(NewRealmHint::Game) => RealmModel::Game(Game::new(vec![])),
+            Some(NewRealmHint::Game(user_ids)) => RealmModel::Game(Game::new(user_ids)),
         }
     }
 
+    pub fn joined(&self, user_id: UserId, _session_id: SessionId) -> Option<Msg> {
+        Some(Msg::PlayerJoined(user_id))
+    }
+
     pub fn update(self, msg: Msg, realm: Realm) -> (RealmModel, Cmd) {
-        match msg {
-            Msg::NewGameStarted(new_realm, user_ids) => {
-                debug!("New realm: {:?}", realm.id);
+        match (self, msg) {
+            (RealmModel::Lobby(lobby), Msg::NewGameStarted(new_realm, user_ids)) => {
+                let game_start =
+                    ToFrontend::ToLobbyFrontend(ToFrontendLobby::GameStart(new_realm.id.clone()));
                 let cmds = user_ids
                     .into_iter()
-                    .map(|user_id| new_realm.add_user(user_id))
+                    .map(|user_id| new_realm.to_user(user_id, [game_start.clone()]))
                     .collect::<Vec<Cmd>>();
-                (self, new_realm.batch(cmds))
+                (RealmModel::Lobby(lobby), new_realm.batch(cmds))
             }
+            (RealmModel::Game(game), Msg::PlayerJoined(user_id)) => (
+                RealmModel::Game(game),
+                realm.to_user(user_id, [ToFrontend::EnteredGame(realm.id.clone())]),
+            ),
+            (RealmModel::Game(_), Msg::NewGameStarted(_, _)) => todo!(),
+            (RealmModel::Lobby(_), Msg::PlayerJoined(_)) => todo!(),
         }
     }
 
@@ -87,7 +105,7 @@ impl RealmModel {
                 let cmds = transitions
                     .into_iter()
                     .map(|(user_id, transition)| {
-                        realm.to_user(user_id, [ToFrontend::ToGame(transition)])
+                        realm.to_user(user_id, [ToFrontend::ToGameFrontend(transition)])
                     })
                     .collect::<Vec<Cmd>>();
                 (RealmModel::Game(updated_game), realm.batch(cmds))
@@ -114,7 +132,7 @@ fn update_lobby_from_frontend(
     match msg {
         ToLobby::StartGame => (
             lobby,
-            realm.spawn(NewRealmHint::Game, |realm_id| {
+            realm.spawn(NewRealmHint::Game(vec![user_id]), |realm_id| {
                 Msg::NewGameStarted(realm_id, vec![user_id])
             }),
         ),
@@ -123,7 +141,9 @@ fn update_lobby_from_frontend(
             (
                 Lobby { counter },
                 // broadcast sends the message to everyone **in the realm**
-                realm.broadcast([ToFrontend::UpdateCounter(counter)]),
+                realm.broadcast([ToFrontend::ToLobbyFrontend(ToFrontendLobby::UpdateCounter(
+                    counter,
+                ))]),
                 // You can also send msgs to individual sessions (browser windows/tabs)
                 // realm.to_session(_session_id, [ToFrontend::UpdateCounter(counter)]),
                 // Or to all sessions of a particular user
@@ -136,7 +156,9 @@ fn update_lobby_from_frontend(
             let counter = lobby.counter - 1;
             (
                 Lobby { counter },
-                realm.broadcast([ToFrontend::UpdateCounter(counter)]),
+                realm.broadcast([ToFrontend::ToLobbyFrontend(ToFrontendLobby::UpdateCounter(
+                    counter,
+                ))]),
             )
         }
     }
