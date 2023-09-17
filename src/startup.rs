@@ -75,9 +75,9 @@ impl RealmMembersStore {
         self.users_by_realm
             .entry(realm_id.clone())
             .and_modify(|members| {
-                members.insert(user_id.clone());
+                members.insert(*user_id);
             })
-            .or_insert_with(|| HashSet::from([user_id.clone()]));
+            .or_insert_with(|| HashSet::from([*user_id]));
     }
 
     pub fn enter_realm(&mut self, user_id: &UserId, session_id: &SessionId, realm_id: &RealmId) {
@@ -105,15 +105,13 @@ impl RealmMembersStore {
         // todo: make more efficient by storing inverse relationship
         for realm in self.sessions_by_realm.iter_mut() {
             let (_, members) = realm;
-            members.remove(&session_id);
+            members.remove(session_id);
         }
     }
 
     fn sessions_in_realm(&self, realm_id: &RealmId) -> HashSet<SessionId> {
         self.sessions_by_realm
-            .get(realm_id)
-            .map(|s| s.clone())
-            .unwrap_or_else(|| HashSet::new())
+            .get(realm_id).cloned().unwrap_or_default()
     }
 }
 
@@ -169,7 +167,7 @@ impl Realms {
     ) {
         self.send_msg(
             realm_id.clone(),
-            RealmThreadMsg::SendJoin(realm_id.clone(), user_id.clone(), session_id.clone()),
+            RealmThreadMsg::SendJoin(realm_id.clone(), *user_id, session_id.clone()),
         )
         .await
     }
@@ -308,7 +306,7 @@ where
 {
     let in_envelopes = to_frontends
         .into_iter()
-        .map(|f| ToFrontendEnvelope::FromRealm(f))
+        .map(ToFrontendEnvelope::FromRealm)
         .collect();
     send_envelope_to_sessions(session_ids, in_envelopes, inboxes).await
 }
@@ -652,7 +650,7 @@ impl AppState {
         self.realm_members
             .write()
             .await
-            .enter_realm(&user_id, &session_id, &realm_id);
+            .enter_realm(user_id, session_id, realm_id);
         self.realms
             .read()
             .await
