@@ -2,6 +2,7 @@ use crate::{
     hades::{write_elm_types, ToFrontendEnvelope},
     startup::AppState,
 };
+use auth::USER_INFO;
 use axum::{
     extract::Extension,
     http::StatusCode,
@@ -21,6 +22,7 @@ use std::{convert::Infallible, net::SocketAddr, time::Duration};
 use tokio::sync::mpsc;
 use tokio_stream::{wrappers::ReceiverStream, StreamExt as _};
 use tower_http::services::{ServeDir, ServeFile};
+use tracing::{debug, error};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod app;
@@ -77,7 +79,7 @@ async fn main() {
     // run our app with hyper
     // `axum::Server` is a re-export of `hyper::Server`
     let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
-    tracing::debug!("listening on {addr}");
+    debug!("listening on {addr}");
     axum::Server::bind(&addr)
         .serve(app.into_make_service())
         .await
@@ -98,15 +100,16 @@ async fn sse_handler(
     Extension(app_state): Extension<AppState>,
     session: ReadableSession,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
-    let session_id_opt = session.get("user_info");
+    let session_id_opt = session.get(USER_INFO);
     let src = if let Some((session_id, user_id)) = session_id_opt {
         let lobby_id = RealmId::Lobby;
         if let Ok(s) = app_state
-            .try_enter_realm(&session_id, &user_id, &lobby_id)
+            .register_new_session(&session_id, &user_id, &lobby_id)
             .await
         {
             s
         } else {
+            error!("User {:?} not allowed to enter '{:?}'", user_id, lobby_id);
             unauthorized_stream().await
         }
     } else {
@@ -131,7 +134,7 @@ pub async fn send(
     session: ReadableSession,
     Json(envelope): Json<ToBackendEnvelope>,
 ) -> Result<impl IntoResponse, WebauthnError> {
-    if let Some((session_id, user_id)) = session.get("id") {
+    if let Some((session_id, user_id)) = session.get(USER_INFO) {
         match envelope {
             ToBackendEnvelope::ForRealm(realm_id, to_backend) => {
                 app_state
@@ -140,7 +143,7 @@ pub async fn send(
             }
             ToBackendEnvelope::EnterRealm(realm_id) => {
                 app_state
-                    .try_enter_realm(&session_id, &user_id, &realm_id)
+                    .enter_realm(&session_id, &user_id, &realm_id)
                     .await
                     .unwrap();
             }

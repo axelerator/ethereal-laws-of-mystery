@@ -287,6 +287,8 @@ pub async fn finish_authentication(
     Ok(res)
 }
 
+pub const USER_INFO: &'static str = "USER_INFO";
+
 async fn login(user_unique_id: Uuid, app_state: AppState, mut session: WritableSession) {
     session
         .insert("logged_in_user", user_unique_id)
@@ -294,7 +296,7 @@ async fn login(user_unique_id: Uuid, app_state: AppState, mut session: WritableS
     let session_id = SessionId::new();
     let user_info = (session_id.clone(), user_unique_id);
     session
-        .insert("id", user_info)
+        .insert(USER_INFO, user_info)
         .expect("Unable to write to session");
     let mut sessions_by_user = app_state.sessions_by_user.write().await;
     let sessions = sessions_by_user
@@ -302,9 +304,5 @@ async fn login(user_unique_id: Uuid, app_state: AppState, mut session: WritableS
         .or_insert(HashSet::new());
     let lobby = RealmId::Lobby;
     app_state.grant_access(&user_unique_id, &lobby).await;
-    app_state
-        .try_enter_realm(&session_id, &user_unique_id, &lobby)
-        .await
-        .unwrap();
     sessions.insert(session_id);
 }

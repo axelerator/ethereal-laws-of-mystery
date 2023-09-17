@@ -111,7 +111,9 @@ impl RealmMembersStore {
 
     fn sessions_in_realm(&self, realm_id: &RealmId) -> HashSet<SessionId> {
         self.sessions_by_realm
-            .get(realm_id).cloned().unwrap_or_default()
+            .get(realm_id)
+            .cloned()
+            .unwrap_or_default()
     }
 }
 
@@ -190,6 +192,7 @@ async fn process_cmd(
     sessions_by_user: &SessionsByUser,
     realm_mngr_inbox: RealmManagerInbox,
 ) {
+    debug!("Processing Cmd: {:?}", cmd);
     let stale_sessions = match cmd {
         CmdInternal::None => {
             vec![]
@@ -285,7 +288,12 @@ where
     for session_id in session_ids {
         if let Some(inbox) = inboxes.get(&session_id) {
             for to_f in to_frontends.iter() {
-                if let Err(_) = inbox.send(to_f.clone()).await {
+                if let Err(e) = inbox.send(to_f.clone()).await {
+                    debug!(
+                        "Couldn't send to {:?} because of {:?}, assuming stale:",
+                        session_id,
+                        e.to_string()
+                    );
                     stale_sessions.push(session_id.clone());
                 }
             }
@@ -626,12 +634,33 @@ impl AppState {
         }
     }
 
-    pub async fn try_enter_realm(
+    pub async fn register_new_session(
         &self,
         session_id: &SessionId,
         user_id: &UserId,
         realm_id: &RealmId,
     ) -> std::result::Result<ReceiverStream<ToFrontendEnvelope>, String> {
+        self.enter_realm(session_id, user_id, realm_id).await?;
+
+        let (inbox, receiver) = mpsc::channel(32);
+
+        let mut event_inboxes = self.events_inbox_by_session_id.write().await;
+        event_inboxes.insert(session_id.clone(), inbox);
+        drop(event_inboxes);
+
+        debug!(
+            "User({:?}) with session({:?}) entered '{:?}'",
+            user_id, session_id, realm_id
+        );
+        Ok(ReceiverStream::new(receiver))
+    }
+
+    pub async fn enter_realm(
+        &self,
+        session_id: &SessionId,
+        user_id: &UserId,
+        realm_id: &RealmId,
+    ) -> std::result::Result<(), String> {
         if !self
             .realm_members
             .read()
@@ -640,12 +669,6 @@ impl AppState {
         {
             return Err("Not a member".to_string());
         }
-
-        let (inbox, receiver) = mpsc::channel(32);
-
-        let mut event_inboxes = self.events_inbox_by_session_id.write().await;
-        event_inboxes.insert(session_id.clone(), inbox);
-        drop(event_inboxes);
 
         self.realm_members
             .write()
@@ -656,7 +679,11 @@ impl AppState {
             .await
             .send_joined_msg(realm_id, user_id, session_id)
             .await;
-        Ok(ReceiverStream::new(receiver))
+        debug!(
+            "User({:?}) with session({:?}) entered '{:?}'",
+            user_id, session_id, realm_id
+        );
+        Ok(())
     }
 
     pub async fn is_user_member_of(&self, user_id: &UserId, realm_id: &RealmId) -> bool {

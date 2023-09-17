@@ -1,6 +1,6 @@
 use elm_rs::{Elm, ElmDecode, ElmEncode};
 use serde::{Deserialize, Serialize};
-use tracing::error;
+use tracing::{debug, error};
 
 use crate::{
     game::{Game, ToGame, Transition},
@@ -76,7 +76,7 @@ impl RealmModel {
                     |realm_id| ToFrontend::ToLobbyFrontend(ToFrontendLobby::GameStart(realm_id));
                 let cmds = user_ids
                     .into_iter()
-                    .map(|user_id| realm.add_user(user_id, game_start));
+                    .map(|user_id| new_realm.add_user(user_id, game_start));
                 (RealmModel::Lobby(lobby), new_realm.batch(cmds))
             }
             (RealmModel::Game(game), Msg::PlayerJoined(user_id)) => (
