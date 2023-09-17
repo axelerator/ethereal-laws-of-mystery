@@ -4,7 +4,7 @@ use std::fs::File;
 
 use crate::{
     app::{ToBackend, ToFrontend, ToFrontendLobby, ToLobby},
-    game::{CardContent, ToGame, Transition, Operator},
+    game::{CardContent, Operator, ToGame, Transition},
 };
 
 // None = Lobby

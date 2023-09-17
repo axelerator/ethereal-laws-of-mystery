@@ -3,6 +3,7 @@ use serde_rusqlite::*;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::{mpsc::Sender, Mutex, RwLock};
+use tokio_stream::wrappers::ReceiverStream;
 use webauthn_rs::prelude::*;
 
 use crate::app::{Msg, NewRealmHint, RealmModel};
@@ -35,12 +36,86 @@ pub enum CmdInternal {
     SendToSession(SessionId, Vec<ToFrontend>),
     BroadcastToRealm(RealmId, Vec<ToFrontend>),
     Spawn(RealmId, RealmId, NewRealmHint, Msg),
-    AddUserToRealm(RealmId, UserId),
+    AddUserToRealm(RealmId, ToFrontend, UserId),
 }
 
 type SessionsByUser = Arc<RwLock<HashMap<UserId, HashSet<SessionId>>>>;
-type RealmMembers = Arc<RwLock<HashMap<RealmId, HashSet<SessionId>>>>;
+type RealmMembers = Arc<RwLock<RealmMembersStore>>;
 type InboxesBySession = Arc<RwLock<HashMap<SessionId, Sender<ToFrontendEnvelope>>>>;
+
+#[derive(Default)]
+pub struct RealmMembersStore {
+    // Define which users are allowed to join a certain realm
+    users_by_realm: HashMap<RealmId, HashSet<UserId>>,
+
+    // tracks which sessions are actually present in a realm
+    sessions_by_realm: HashMap<RealmId, HashSet<SessionId>>,
+}
+
+impl RealmMembersStore {
+    pub fn is_allowed_to_join(&self, user_id: &UserId, realm_id: &RealmId) -> bool {
+        self.is_user_member_of(user_id, realm_id)
+    }
+
+    pub fn is_user_member_of(&self, user_id: &UserId, realm_id: &RealmId) -> bool {
+        self.users_by_realm
+            .get(realm_id)
+            .map(|users| users.get(user_id))
+            .is_some()
+    }
+
+    pub fn is_session_member_of(&self, session_id: &SessionId, realm_id: &RealmId) -> bool {
+        self.sessions_by_realm
+            .get(realm_id)
+            .map(|sessions| sessions.get(session_id))
+            .is_some()
+    }
+
+    pub fn grant_access(&mut self, user_id: &UserId, realm_id: &RealmId) {
+        self.users_by_realm
+            .entry(realm_id.clone())
+            .and_modify(|members| {
+                members.insert(user_id.clone());
+            })
+            .or_insert_with(|| HashSet::from([user_id.clone()]));
+    }
+
+    pub fn enter_realm(&mut self, user_id: &UserId, session_id: &SessionId, realm_id: &RealmId) {
+        debug!(
+            "User({user_id}) with Session({:?}) entering: {:?}",
+            session_id, realm_id
+        );
+
+        if self.is_allowed_to_join(user_id, realm_id) {
+            self.sessions_by_realm
+                .entry(realm_id.clone())
+                .and_modify(|members| {
+                    members.insert(session_id.clone());
+                })
+                .or_insert_with(|| HashSet::from([session_id.clone()]));
+        } else {
+            error!(
+                "User({:?}) with session({:?}) tried to enter {:?} but isn't a member!",
+                user_id, session_id, realm_id
+            );
+        }
+    }
+
+    pub fn leave_all_realms(&mut self, session_id: &SessionId) {
+        // todo: make more efficient by storing inverse relationship
+        for realm in self.sessions_by_realm.iter_mut() {
+            let (_, members) = realm;
+            members.remove(&session_id);
+        }
+    }
+
+    fn sessions_in_realm(&self, realm_id: &RealmId) -> HashSet<SessionId> {
+        self.sessions_by_realm
+            .get(realm_id)
+            .map(|s| s.clone())
+            .unwrap_or_else(|| HashSet::new())
+    }
+}
 
 #[derive(Clone)]
 pub struct AppState {
@@ -64,7 +139,6 @@ pub enum RealmThreadMsg {
 
 pub struct Realms {
     pub realms: HashMap<RealmId, Sender<RealmThreadMsg>>,
-    id_seq: u32,
 }
 
 impl Realms {
@@ -87,10 +161,15 @@ impl Realms {
             .await
     }
 
-    pub async fn send_joined_msg(&self, realm_id: RealmId, user_id: UserId, session_id: SessionId) {
+    pub async fn send_joined_msg(
+        &self,
+        realm_id: &RealmId,
+        user_id: &UserId,
+        session_id: &SessionId,
+    ) {
         self.send_msg(
             realm_id.clone(),
-            RealmThreadMsg::SendJoin(realm_id, user_id, session_id),
+            RealmThreadMsg::SendJoin(realm_id.clone(), user_id.clone(), session_id.clone()),
         )
         .await
     }
@@ -113,9 +192,11 @@ async fn process_cmd(
     sessions_by_user: &SessionsByUser,
     realm_mngr_inbox: RealmManagerInbox,
 ) {
-    match cmd {
-        CmdInternal::None => {}
-        CmdInternal::Cmds(cmds) => panic!("Must have been flattened to avoid recursive async fn"),
+    let stale_sessions = match cmd {
+        CmdInternal::None => {
+            vec![]
+        }
+        CmdInternal::Cmds(_) => panic!("Must have been flattened to avoid recursive async fn"),
         CmdInternal::SendToUser(user_id, to_frontends) => {
             let sessions_by_user = sessions_by_user.read().await;
             let session_ids = sessions_by_user
@@ -123,57 +204,29 @@ async fn process_cmd(
                 .map_or(Some(HashSet::new()), |s| Some(s.clone()))
                 .unwrap();
 
-            let inboxes = inboxes.read().await;
-            for session_id in session_ids {
-                if let Some(inbox) = inboxes.get(&session_id) {
-                    for to_f in to_frontends.iter() {
-                        inbox
-                            .send(ToFrontendEnvelope::FromRealm(to_f.clone()))
-                            .await
-                            .expect("Sending to inbox failed");
-                    }
-                } else {
-                    panic!("Inbox not found");
-                }
-            }
+            send_to_sessions(session_ids, to_frontends, inboxes).await
         }
         CmdInternal::SendToSession(session_id, to_frontends) => {
+            let mut stale_sessions = vec![];
             let inboxes = inboxes.read().await;
             if let Some(inbox) = inboxes.get(&session_id) {
                 for to_f in to_frontends {
-                    inbox
+                    if let Err(_) = inbox
                         .send(ToFrontendEnvelope::FromRealm(to_f.clone()))
                         .await
-                        .expect("Sending to inbox failed");
+                    {
+                        stale_sessions.push(session_id.clone());
+                    }
                 }
             } else {
                 panic!("Inbox not found");
             }
+            stale_sessions
         }
         CmdInternal::BroadcastToRealm(realm_id, to_frontends) => {
             let realm_members = realm_members.read().await;
-            let recipients = realm_members.get(&realm_id);
-            match recipients {
-                None => {
-                    error!("Realm {:?} doesn't exist", realm_id);
-                    return;
-                }
-                Some(recipients) => {
-                    let inboxes = inboxes.read().await;
-                    for session_id in recipients {
-                        if let Some(inbox) = inboxes.get(session_id) {
-                            for to_f in to_frontends.iter() {
-                                inbox
-                                    .send(ToFrontendEnvelope::FromRealm(to_f.clone()))
-                                    .await
-                                    .expect("Sending to inbox failed");
-                            }
-                        } else {
-                            panic!("Inbox not found");
-                        }
-                    }
-                }
-            }
+            let recipients = realm_members.sessions_in_realm(&realm_id);
+            send_to_sessions(recipients.clone(), to_frontends, inboxes).await
         }
         CmdInternal::Spawn(from_realm_id, target_realm_id, new_realm_hint, target_id) => {
             realm_mngr_inbox
@@ -185,17 +238,79 @@ async fn process_cmd(
                 ))
                 .await
                 .unwrap();
+            vec![]
         }
-        CmdInternal::AddUserToRealm(realm_id, user_id) => {
-            let mut realm_members = realm_members.write().await;
+        CmdInternal::AddUserToRealm(realm_id, to_frontend, user_id) => {
             realm_members
-                .entry(realm_id)
-                .and_modify(|members| {
-                    members.insert(user_id);
-                })
-                .or_insert_with(|| HashSet::from([user_id]));
+                .write()
+                .await
+                .grant_access(&user_id, &realm_id);
+            let sessions_by_user = sessions_by_user.read().await;
+            let session_ids = sessions_by_user
+                .get(&user_id)
+                .map_or(Some(HashSet::new()), |s| Some(s.clone()))
+                .unwrap();
+            let to_frontends = vec![to_frontend];
+            send_to_sessions(session_ids, to_frontends, inboxes).await;
+
+            vec![]
+        }
+    };
+
+    if !stale_sessions.is_empty() {
+        let mut inboxes = inboxes.write().await;
+        let mut sessions_by_user = sessions_by_user.write().await;
+        let mut realm_members = realm_members.write().await;
+        for session_id in stale_sessions {
+            inboxes.remove(&session_id);
+            // todo: make more efficient by storing inverse relationship
+            for user in sessions_by_user.iter_mut() {
+                let (_, sessions) = user;
+                sessions.remove(&session_id);
+            }
+            realm_members.leave_all_realms(&session_id);
+            debug!("Session {:?} removed for being stale", session_id);
         }
     }
+}
+
+async fn send_envelope_to_sessions<S>(
+    session_ids: S,
+    to_frontends: Vec<ToFrontendEnvelope>,
+    inboxes: &InboxesBySession,
+) -> Vec<SessionId>
+where
+    S: IntoIterator<Item = SessionId>,
+{
+    let mut stale_sessions = vec![];
+    let inboxes = inboxes.read().await;
+    for session_id in session_ids {
+        if let Some(inbox) = inboxes.get(&session_id) {
+            for to_f in to_frontends.iter() {
+                if let Err(_) = inbox.send(to_f.clone()).await {
+                    stale_sessions.push(session_id.clone());
+                }
+            }
+        } else {
+            panic!("Inbox not found");
+        }
+    }
+    stale_sessions
+}
+
+async fn send_to_sessions<S>(
+    session_ids: S,
+    to_frontends: Vec<ToFrontend>,
+    inboxes: &InboxesBySession,
+) -> Vec<SessionId>
+where
+    S: IntoIterator<Item = SessionId>,
+{
+    let in_envelopes = to_frontends
+        .into_iter()
+        .map(|f| ToFrontendEnvelope::FromRealm(f))
+        .collect();
+    send_envelope_to_sessions(session_ids, in_envelopes, inboxes).await
 }
 
 fn flatten_cmd(cmd: CmdInternal, accu: &mut Vec<CmdInternal>) {
@@ -343,9 +458,13 @@ impl Realm {
             internal: CmdInternal::Spawn(self.id.clone(), realm_id, hint, to_backend),
         }
     }
-    pub fn add_user(&self, user_id: UserId) -> Cmd {
+    pub fn add_user<F>(&self, user_id: UserId, entered_realm: F) -> Cmd
+    where
+        F: FnOnce(RealmId) -> ToFrontend,
+    {
+        let to_frontend = entered_realm(self.id.clone());
         Cmd {
-            internal: CmdInternal::AddUserToRealm(self.id.clone(), user_id),
+            internal: CmdInternal::AddUserToRealm(self.id.clone(), to_frontend, user_id),
         }
     }
 }
@@ -354,7 +473,6 @@ impl Realms {
     pub fn new() -> Realms {
         Realms {
             realms: HashMap::new(),
-            id_seq: 0,
         }
     }
 
@@ -426,14 +544,6 @@ pub enum RealmManagerMsg {
 type RealmManagerInbox = Sender<RealmManagerMsg>;
 
 impl AppState {
-    pub async fn is_member_of(&self, session_id: &SessionId, realm_id: &RealmId) -> bool {
-        let realm_members = self.realm_members.read().await;
-        let contains = realm_members
-            .get(realm_id)
-            .map(|members| members.contains(session_id));
-        contains.unwrap_or(false)
-    }
-
     pub async fn new() -> Self {
         // Effective domain name.
         let rp_id = "localhost";
@@ -458,7 +568,7 @@ impl AppState {
             Connection::open("db.sqlite").expect("Didn't find sqlite DB"),
         ));
         let realms = Arc::new(RwLock::new(Realms::new()));
-        let realm_members = Arc::new(RwLock::new(HashMap::new()));
+        let realm_members = Arc::new(RwLock::new(RealmMembersStore::default()));
         let sessions_by_user = Arc::new(RwLock::new(HashMap::new()));
         let events_inbox_by_session_id = Arc::new(RwLock::new(HashMap::new()));
 
@@ -486,10 +596,6 @@ impl AppState {
                                 Some(hint),
                             )
                             .await;
-                        realm_members_
-                            .write()
-                            .await
-                            .insert(target_realm_id, HashSet::new());
                         realms_
                             .read()
                             .await
@@ -510,10 +616,6 @@ impl AppState {
                 realm_mngr_inbox,
             )
             .await;
-        realm_members
-            .write()
-            .await
-            .insert(RealmId::Lobby, HashSet::new());
 
         AppState {
             webauthn,
@@ -524,5 +626,77 @@ impl AppState {
             realm_members,
             events_inbox_by_session_id,
         }
+    }
+
+    pub async fn try_enter_realm(
+        &self,
+        session_id: &SessionId,
+        user_id: &UserId,
+        realm_id: &RealmId,
+    ) -> std::result::Result<ReceiverStream<ToFrontendEnvelope>, String> {
+        if !self
+            .realm_members
+            .read()
+            .await
+            .is_allowed_to_join(user_id, realm_id)
+        {
+            return Err("Not a member".to_string());
+        }
+
+        let (inbox, receiver) = mpsc::channel(32);
+
+        let mut event_inboxes = self.events_inbox_by_session_id.write().await;
+        event_inboxes.insert(session_id.clone(), inbox);
+        drop(event_inboxes);
+
+        self.realm_members
+            .write()
+            .await
+            .enter_realm(&user_id, &session_id, &realm_id);
+        self.realms
+            .read()
+            .await
+            .send_joined_msg(realm_id, user_id, session_id)
+            .await;
+        Ok(ReceiverStream::new(receiver))
+    }
+
+    pub async fn is_user_member_of(&self, user_id: &UserId, realm_id: &RealmId) -> bool {
+        self.realm_members
+            .read()
+            .await
+            .is_user_member_of(user_id, realm_id)
+    }
+
+    pub async fn is_session_member_of(&self, session_id: &SessionId, realm_id: &RealmId) -> bool {
+        self.realm_members
+            .read()
+            .await
+            .is_session_member_of(session_id, realm_id)
+    }
+
+    pub async fn send_from_frontend(
+        &self,
+        realm_id: RealmId,
+        to_backend: ToBackend,
+        user_id: UserId,
+        session_id: SessionId,
+    ) {
+        if self.is_user_member_of(&user_id, &realm_id).await {
+            self.realms
+                .read()
+                .await
+                .send_from_frontend(realm_id, to_backend, user_id, session_id)
+                .await;
+        } else {
+            tracing::warn!("{:?} not a member of {:?}", session_id, realm_id);
+        }
+    }
+
+    pub async fn grant_access(&self, user_id: &UserId, realm_id: &RealmId) {
+        self.realm_members
+            .write()
+            .await
+            .grant_access(user_id, realm_id);
     }
 }

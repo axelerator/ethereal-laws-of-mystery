@@ -1,8 +1,7 @@
 use crate::users::UserId;
 use elm_rs::{Elm, ElmDecode, ElmEncode};
-use serde::{Deserialize, Serialize};
 use rand::seq::SliceRandom;
-
+use serde::{Deserialize, Serialize};
 
 #[derive(Elm, ElmEncode, Deserialize, Debug, Clone)]
 pub enum ToGame {
@@ -33,18 +32,16 @@ pub enum Operator {
     Times,
 }
 
-
 #[derive(Elm, ElmDecode, Serialize, Debug, Clone)]
 pub enum CardContent {
     NumberCard(u8),
     OperatorCard(Operator),
-    SwapOperators
+    SwapOperators,
 }
 
 pub struct Game {
     players: Vec<Player>,
     pile: Vec<CardContent>,
-    discard: Vec<CardContent>,
 }
 
 fn deck() -> Vec<CardContent> {
@@ -63,18 +60,12 @@ fn deck() -> Vec<CardContent> {
 }
 
 type GameChanger = (Game, Vec<(UserId, Transition)>);
-type PlayerId = usize;
 
 impl Game {
     pub fn new(user_ids: Vec<UserId>) -> Game {
         let players = user_ids.into_iter().map(Player::new).collect();
         let pile = deck();
-        let discard = vec![];
-        Game {
-            players,
-            pile,
-            discard,
-        }
+        Game { players, pile }
     }
 
     pub fn update(self, msg: ToGame) -> GameChanger {

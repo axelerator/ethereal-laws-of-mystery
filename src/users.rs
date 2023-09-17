@@ -7,7 +7,17 @@ use webauthn_rs::prelude::AuthenticationResult;
 use webauthn_rs::prelude::Passkey;
 use webauthn_rs::prelude::Uuid;
 
-pub type SessionId = Uuid;
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Hash)]
+pub struct SessionId {
+    id: Uuid,
+}
+
+impl SessionId {
+    pub fn new() -> SessionId {
+        SessionId { id: Uuid::new_v4() }
+    }
+}
+
 pub type UserId = Uuid;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]

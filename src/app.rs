@@ -1,11 +1,11 @@
 use elm_rs::{Elm, ElmDecode, ElmEncode};
 use serde::{Deserialize, Serialize};
-use tracing::{debug, error};
+use tracing::error;
 
 use crate::{
     game::{Game, ToGame, Transition},
     hades::RealmId,
-    startup::{Cmd, CmdInternal, Realm},
+    startup::{Cmd, Realm},
     users::{SessionId, UserId},
 };
 #[derive(Debug, Clone)]
@@ -63,18 +63,20 @@ impl RealmModel {
     }
 
     pub fn joined(&self, user_id: UserId, _session_id: SessionId) -> Option<Msg> {
-        Some(Msg::PlayerJoined(user_id))
+        match self {
+            RealmModel::Lobby(_) => None,
+            RealmModel::Game(_) => Some(Msg::PlayerJoined(user_id)),
+        }
     }
 
     pub fn update(self, msg: Msg, realm: Realm) -> (RealmModel, Cmd) {
         match (self, msg) {
             (RealmModel::Lobby(lobby), Msg::NewGameStarted(new_realm, user_ids)) => {
                 let game_start =
-                    ToFrontend::ToLobbyFrontend(ToFrontendLobby::GameStart(new_realm.id.clone()));
+                    |realm_id| ToFrontend::ToLobbyFrontend(ToFrontendLobby::GameStart(realm_id));
                 let cmds = user_ids
                     .into_iter()
-                    .map(|user_id| new_realm.to_user(user_id, [game_start.clone()]))
-                    .collect::<Vec<Cmd>>();
+                    .map(|user_id| realm.add_user(user_id, game_start));
                 (RealmModel::Lobby(lobby), new_realm.batch(cmds))
             }
             (RealmModel::Game(game), Msg::PlayerJoined(user_id)) => (
@@ -82,7 +84,7 @@ impl RealmModel {
                 realm.to_user(user_id, [ToFrontend::EnteredGame(realm.id.clone())]),
             ),
             (RealmModel::Game(_), Msg::NewGameStarted(_, _)) => todo!(),
-            (RealmModel::Lobby(_), Msg::PlayerJoined(_)) => todo!(),
+            (RealmModel::Lobby(l), Msg::PlayerJoined(_)) => (RealmModel::Lobby(l), realm.nothing()),
         }
     }
 

@@ -62,6 +62,7 @@ update { webauthn } msg model =
                     , sendToBackend <| EnterRealm realmId
                     )
 
+
         GotSendResponse result ->
             ( model, Cmd.none )
 

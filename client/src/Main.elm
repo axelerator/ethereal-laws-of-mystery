@@ -58,7 +58,7 @@ type Msg
     = ForWebauthn WebAuthn.Msg
     | ForHome Home.Msg
     | ForGame Game.Msg
-    | GotLoginResponse ( String, String )
+    | FromPort ( String, String )
 
 globalActions =
   { webauthn = portOut
@@ -69,12 +69,12 @@ globalActions =
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case ( msg, model ) of
-        ( GotLoginResponse _, OnLogin model_ ) ->
+        ( FromPort _, OnLogin model_ ) ->
             ( OnHome Home.init
             , Cmd.none
             )
 
-        ( GotLoginResponse ( "event", eventData ), OnGame model_ ) ->
+        ( FromPort ( "event", eventData ), OnGame model_ ) ->
             let
                 noop =
                     ( model, Cmd.none )
@@ -111,7 +111,7 @@ update msg model =
 
                 Err _ ->
                     noop
-        ( GotLoginResponse ( "event", eventData ), OnHome model_ ) ->
+        ( FromPort ( "event", eventData ), OnHome model_ ) ->
             let
                 noop =
                     ( model, Cmd.none )
@@ -194,7 +194,7 @@ update msg model =
 subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch 
-      [ portIn GotLoginResponse
+      [ portIn FromPort
       , case model of
           OnGame model_ -> Sub.map ForGame <| Game.subscriptions model_
           _ -> Sub.none

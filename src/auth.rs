@@ -1,7 +1,8 @@
 use std::collections::HashSet;
 
-use crate::error::WebauthnError;
+use crate::hades::RealmId;
 use crate::startup::AppState;
+use crate::{error::WebauthnError, users::SessionId};
 use axum::{
     extract::{Extension, Json, Path},
     http::StatusCode,
@@ -290,13 +291,20 @@ async fn login(user_unique_id: Uuid, app_state: AppState, mut session: WritableS
     session
         .insert("logged_in_user", user_unique_id)
         .expect("Unable to write to session");
-    let session_id = Uuid::new_v4();
+    let session_id = SessionId::new();
+    let user_info = (session_id.clone(), user_unique_id);
     session
-        .insert("id", session_id)
+        .insert("id", user_info)
         .expect("Unable to write to session");
     let mut sessions_by_user = app_state.sessions_by_user.write().await;
     let sessions = sessions_by_user
         .entry(user_unique_id)
         .or_insert(HashSet::new());
+    let lobby = RealmId::Lobby;
+    app_state.grant_access(&user_unique_id, &lobby).await;
+    app_state
+        .try_enter_realm(&session_id, &user_unique_id, &lobby)
+        .await
+        .unwrap();
     sessions.insert(session_id);
 }

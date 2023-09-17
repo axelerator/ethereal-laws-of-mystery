@@ -1,6 +1,6 @@
 use crate::{
     hades::{write_elm_types, ToFrontendEnvelope},
-    startup::{AppState, RealmThreadMsg},
+    startup::AppState,
 };
 use axum::{
     extract::Extension,
@@ -14,19 +14,14 @@ use axum_sessions::extractors::ReadableSession;
 use axum_sessions::{async_session::MemoryStore, SameSite, SessionLayer};
 use error::WebauthnError;
 use futures::stream::Stream;
-use hades::ToBackendEnvelope;
+use hades::{RealmId, ToBackendEnvelope};
 use rand::thread_rng;
 use rand::Rng;
-use std::{collections::HashSet, convert::Infallible, net::SocketAddr, time::Duration};
+use std::{convert::Infallible, net::SocketAddr, time::Duration};
 use tokio::sync::mpsc;
 use tokio_stream::{wrappers::ReceiverStream, StreamExt as _};
 use tower_http::services::{ServeDir, ServeFile};
-use tracing::debug;
-use tracing_subscriber::{
-    layer::SubscriberExt, registry, util::SubscriberInitExt, EnvFilter, FmtSubscriber,
-};
-use users::UserId;
-use webauthn_rs::prelude::Uuid;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod app;
 mod auth;
@@ -89,32 +84,33 @@ async fn main() {
         .unwrap();
 }
 
+async fn unauthorized_stream() -> ReceiverStream<ToFrontendEnvelope> {
+    let (inbox, receiver) = mpsc::channel(1);
+    tokio::spawn(async move {
+        let _ = inbox
+            .send_timeout(ToFrontendEnvelope::Unauthorized, Duration::from_secs(1))
+            .await;
+    });
+    ReceiverStream::new(receiver)
+}
+
 async fn sse_handler(
     Extension(app_state): Extension<AppState>,
     session: ReadableSession,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
-    let session_id_opt = session.get("id");
-    let src = if let Some(session_id) = session_id_opt {
-        let (inbox, receiver) = mpsc::channel(32);
-
-        let mut event_inboxes = app_state.events_inbox_by_session_id.write().await;
-        event_inboxes.insert(session_id, inbox);
-        drop(event_inboxes);
-        let mut realm_members = app_state.realm_members.write().await;
-        let members = realm_members
-            .get_mut(&hades::RealmId::Lobby)
-            .expect("Missing lobby");
-        members.insert(session_id);
-        drop(realm_members);
-        ReceiverStream::new(receiver)
+    let session_id_opt = session.get("user_info");
+    let src = if let Some((session_id, user_id)) = session_id_opt {
+        let lobby_id = RealmId::Lobby;
+        if let Ok(s) = app_state
+            .try_enter_realm(&session_id, &user_id, &lobby_id)
+            .await
+        {
+            s
+        } else {
+            unauthorized_stream().await
+        }
     } else {
-        let (inbox, receiver) = mpsc::channel(1);
-        tokio::spawn(async move {
-            let _ = inbox
-                .send_timeout(ToFrontendEnvelope::Unauthorized, Duration::from_secs(1))
-                .await;
-        });
-        ReceiverStream::new(receiver)
+        unauthorized_stream().await
     };
     let stream = src
         .map(|envelope| {
@@ -135,39 +131,18 @@ pub async fn send(
     session: ReadableSession,
     Json(envelope): Json<ToBackendEnvelope>,
 ) -> Result<impl IntoResponse, WebauthnError> {
-    if let Some(session_id) = session.get::<Uuid>("id") {
-        let user_id = session.get::<UserId>("logged_in_user").unwrap();
+    if let Some((session_id, user_id)) = session.get("id") {
         match envelope {
             ToBackendEnvelope::ForRealm(realm_id, to_backend) => {
-                if app_state.is_member_of(&session_id, &realm_id).await {
-                    app_state
-                        .realms
-                        .read()
-                        .await
-                        .send_from_frontend(realm_id, to_backend, user_id, session_id)
-                        .await;
-                } else {
-                    tracing::warn!("{} not a member of {:?}", session_id, realm_id);
-                }
+                app_state
+                    .send_from_frontend(realm_id, to_backend, user_id, session_id)
+                    .await;
             }
             ToBackendEnvelope::EnterRealm(realm_id) => {
-                debug!(
-                    "User({user_id}) with Session({session_id}) entering: {:?}",
-                    realm_id
-                );
-                let mut realm_members = app_state.realm_members.write().await;
-                realm_members
-                    .entry(realm_id.clone())
-                    .and_modify(|members| {
-                        members.insert(session_id);
-                    })
-                    .or_insert_with(|| HashSet::from([user_id]));
                 app_state
-                    .realms
-                    .read()
+                    .try_enter_realm(&session_id, &user_id, &realm_id)
                     .await
-                    .send_joined_msg(realm_id, user_id, session_id)
-                    .await;
+                    .unwrap();
             }
         }
         Ok(StatusCode::OK)
