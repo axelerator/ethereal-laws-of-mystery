@@ -2,6 +2,7 @@ module Cards exposing (..)
 
 import Browser.Events exposing (onAnimationFrameDelta)
 import Ease exposing (outCubic)
+import Hades exposing (CardContent(..), GameInfo)
 import Html exposing (Attribute, Html, div, p, text)
 import Html.Attributes exposing (class, id, style)
 import Html.Events exposing (onClick)
@@ -11,7 +12,6 @@ import Pixels
 import Point2d exposing (toPixels)
 import String exposing (fromFloat)
 import Vector2d
-import Hades exposing (CardContent(..))
 
 
 type Msg
@@ -37,11 +37,27 @@ type alias Model =
     }
 
 
-init_ : CardsModel
-init_ =
+
+
+init_ : GameInfo -> CardsModel
+init_ { center } =
+    let
+        mkCard : Int -> CardContent -> Card
+        mkCard i content =
+                { id = i
+                , location = CenterRow i
+                , content = content
+                }
+
+        cards =
+            List.indexedMap mkCard center
+
+        visuals =
+            updateAni cards []
+    in
     CardsModel
-        { cards = []
-        , visuals = []
+        { cards = cards
+        , visuals = visuals
         }
 
 
@@ -79,7 +95,7 @@ addCard (CardsModel { cards, visuals }) newId _ location content =
             newCard :: cards
 
         visualsWithoutPriorAnis =
-          List.filter (\(c, _) -> c.id /= newId) visuals
+            List.filter (\( c, _ ) -> c.id /= newId) visuals
 
         withNewCardOnDeck =
             updateAni withNewCard visualsWithoutPriorAnis
@@ -90,31 +106,35 @@ addCard (CardsModel { cards, visuals }) newId _ location content =
         }
 
 
-removeCard : CardId -> CardsModel -> ( Maybe (Card, Point), CardsModel )
+removeCard : CardId -> CardsModel -> ( Maybe ( Card, Point ), CardsModel )
 removeCard cardId ((CardsModel { cards, visuals }) as model) =
     let
         ( extracted_cards, cards_ ) =
             List.partition ((==) cardId << .id) cards
-        visual = List.head <| List.filter ((==) cardId << .id << Tuple.first) visuals 
+
+        visual =
+            List.head <| List.filter ((==) cardId << .id << Tuple.first) visuals
 
         pos a =
             case a of
-                Just (_, (Animation _ from to t)) ->
+                Just ( _, Animation _ from to t ) ->
                     Just <| .pos <| interpolate_ from to t
 
-                Just (_, (Settled p)) ->
+                Just ( _, Settled p ) ->
                     Just p.pos
 
-                _ -> Nothing
-        
+                _ ->
+                    Nothing
     in
-    case (List.head extracted_cards, pos visual) of
-        (Just card, Just p) -> 
-          ( Just (card, p)
-          , CardsModel
-              { cards = cards_, visuals = updateAni cards_ visuals }
-          )
-        _ -> (Nothing, model)
+    case ( List.head extracted_cards, pos visual ) of
+        ( Just card, Just p ) ->
+            ( Just ( card, p )
+            , CardsModel
+                { cards = cards_, visuals = updateAni cards_ visuals }
+            )
+
+        _ ->
+            ( Nothing, model )
 
 
 moveCardTo : CardsModel -> CardId -> Location -> CardsModel
@@ -224,7 +244,6 @@ updateAniFor cards ( card, ani ) =
     let
         target =
             List.head <| List.filter (hasSameIdAs card) cards
-
     in
     case target of
         Just targetCard ->
@@ -370,21 +389,30 @@ screenPos cards loc =
             , opacity = 1.0
             , degrees = startSpread + degreePerCard * toFloat p
             }
+
         InFlight p ->
             { pos = p
             , opacity = 1.0
             , degrees = 10
             }
+
         CenterRow i ->
             { pos = centerRowSpot i
             , opacity = 1.0
-            , degrees = 10
+            , degrees = 0
             }
 
+
 centerRowSpot i =
-  move (vec (toFloat i * 1.5 * cardWidth) 0) centerRowOrigin
-cardWidth = 100
-centerRowOrigin = point 200 100
+    move (vec (toFloat i * 1.15 * cardWidth) 0) centerRowOrigin
+
+
+cardWidth =
+    150
+
+
+centerRowOrigin =
+    point 20 100
 
 
 type alias CardId =
@@ -586,4 +614,4 @@ viewAni viewCard ( { id, content } as card, a ) =
 
 viewAnis : CardsModel -> (Card -> List (Attribute msg) -> Html msg) -> List (Html msg)
 viewAnis (CardsModel { visuals }) viewCard =
-     List.reverse <| List.map (viewAni viewCard) visuals
+    List.reverse <| List.map (viewAni viewCard) visuals

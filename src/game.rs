@@ -3,6 +3,12 @@ use elm_rs::{Elm, ElmDecode, ElmEncode};
 use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
 
+#[derive(Elm, ElmDecode, Serialize, Debug, Clone)]
+pub struct GameInfo {
+    center: [CardContent; 5],
+}
+
+
 #[derive(Elm, ElmEncode, Deserialize, Debug, Clone)]
 pub enum ToGame {
     DrawFromPile,
@@ -39,11 +45,6 @@ pub enum CardContent {
     SwapOperators,
 }
 
-pub struct Game {
-    players: Vec<Player>,
-    pile: Vec<CardContent>,
-}
-
 fn deck() -> Vec<CardContent> {
     let mut cards = vec![];
     for number in 0..10 {
@@ -61,11 +62,23 @@ fn deck() -> Vec<CardContent> {
 
 type GameChanger = (Game, Vec<(UserId, Transition)>);
 
+
+pub struct Game {
+    players: Vec<Player>,
+    pile: Vec<CardContent>,
+    center: [CardContent; 5],
+}
 impl Game {
     pub fn new(user_ids: Vec<UserId>) -> Game {
         let players = user_ids.into_iter().map(Player::new).collect();
         let pile = deck();
-        Game { players, pile }
+        let op = CardContent::OperatorCard(Operator::Plus);
+        let eq = CardContent::SwapOperators;
+        let n1 = CardContent::NumberCard(1);
+        let n2 = CardContent::NumberCard(2);
+        let n3 = CardContent::NumberCard(9);
+        let center = [n1, op, n2, eq, n3];
+        Game { players, pile, center }
     }
 
     pub fn update(self, msg: ToGame) -> GameChanger {
@@ -97,5 +110,9 @@ impl Game {
         player.hand.extend(drawn_cards);
 
         (self, transitions)
+    }
+
+    pub fn game_info(&self) -> GameInfo {
+        GameInfo { center: self.center.clone() }
     }
 }

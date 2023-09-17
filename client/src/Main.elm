@@ -92,7 +92,7 @@ update msg model =
 
                         FromRealm toFrontend ->
                             case toFrontend of
-                                EnteredGame realmId ->
+                                EnteredGame _ _ ->
                                   noop
                                 ToGameFrontend forGame ->
                                   let
@@ -129,8 +129,8 @@ update msg model =
 
                         FromRealm toFrontend ->
                             case toFrontend of
-                                EnteredGame realmId ->
-                                  (OnGame <| Game.init realmId
+                                EnteredGame realmId gameInfo ->
+                                  (OnGame <| Game.init realmId gameInfo
                                   , Cmd.none
                                   )
                                 ToGameFrontend forGame ->

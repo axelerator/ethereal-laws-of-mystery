@@ -4,7 +4,7 @@ use std::fs::File;
 
 use crate::{
     app::{ToBackend, ToFrontend, ToFrontendLobby, ToLobby},
-    game::{CardContent, Operator, ToGame, Transition},
+    game::{CardContent, Operator, ToGame, Transition, GameInfo},
 };
 
 // None = Lobby
@@ -34,7 +34,7 @@ pub fn write_elm_types() {
         // generates types and encoders for types implementing ElmEncoder
         encoders: [RealmId, ToBackendEnvelope, ToBackend, ToLobby, ToGame],
         // generates types and decoders for types implementing ElmDecoder
-        decoders: [RealmId, ToFrontendEnvelope, ToFrontend, ToFrontendLobby, Transition, CardContent, Operator],
+        decoders: [RealmId, ToFrontendEnvelope, ToFrontend, ToFrontendLobby, Transition, CardContent, Operator, GameInfo],
         // generates types and functions for forming queries for types implementing ElmQuery
         queries: [],
         // generates types and functions for forming queries for types implementing ElmQueryField

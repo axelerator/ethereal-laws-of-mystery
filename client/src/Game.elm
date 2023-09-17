@@ -8,6 +8,7 @@ import Hades
         ( CardContent(..)
         , Operator(..)
         , RealmId(..)
+        , GameInfo
         , ToBackend(..)
         , ToBackendEnvelope(..)
         , ToFrontend(..)
@@ -34,12 +35,12 @@ type alias Model =
     }
 
 
-init : RealmId -> Model
-init realmId =
+init : RealmId -> GameInfo -> Model
+init realmId gameInfo =
     { counter = 0
     , realmId = realmId
-    , cardIdGen = 0
-    , cards = Cards.init_
+    , cardIdGen = 5
+    , cards = Cards.init_ gameInfo
     , draggedCard = Nothing
     , drag = Draggable.init
     }

@@ -141,7 +141,7 @@ toFrontendEnvelopeDecoder =
 type ToFrontend
     = ToLobbyFrontend (ToFrontendLobby)
     | ToGameFrontend (Transition)
-    | EnteredGame (RealmId)
+    | EnteredGame (RealmId) (GameInfo)
 
 
 toFrontendDecoder : Json.Decode.Decoder ToFrontend
@@ -149,7 +149,7 @@ toFrontendDecoder =
     Json.Decode.oneOf
         [ Json.Decode.map ToLobbyFrontend (Json.Decode.field "ToLobbyFrontend" (toFrontendLobbyDecoder))
         , Json.Decode.map ToGameFrontend (Json.Decode.field "ToGameFrontend" (transitionDecoder))
-        , Json.Decode.map EnteredGame (Json.Decode.field "EnteredGame" (realmIdDecoder))
+        , Json.Decode.field "EnteredGame" (Json.Decode.succeed EnteredGame |> Json.Decode.andThen (\x -> Json.Decode.index 0 (realmIdDecoder) |> Json.Decode.map x) |> Json.Decode.andThen (\x -> Json.Decode.index 1 (gameInfoDecoder) |> Json.Decode.map x))
         ]
 
 type ToFrontendLobby
@@ -243,4 +243,15 @@ operatorDecoder =
                             Json.Decode.fail <| "Unexpected variant " ++ unexpected
                 )
         ]
+
+type alias GameInfo =
+    { center : List (CardContent)
+    }
+
+
+gameInfoDecoder : Json.Decode.Decoder GameInfo
+gameInfoDecoder =
+    Json.Decode.succeed GameInfo
+        |> Json.Decode.andThen (\x -> Json.Decode.map x (Json.Decode.field "center" (Json.Decode.list (cardContentDecoder))))
+
 
