@@ -8,16 +8,26 @@ pub struct GameInfo {
     center: [CardContent; 5],
 }
 
-
 #[derive(Elm, ElmEncode, Deserialize, Debug, Clone)]
 pub enum ToGame {
     DrawFromPile,
+    Play(usize, usize),
+}
+
+#[derive(Elm, ElmEncode, ElmDecode, Serialize, Deserialize, Debug, Clone)]
+pub enum Location {
+    Deck,
+    MyHand(u8),
+    DiscardPile,
+    InFlight(f32, f32),
+    CenterRow(usize),
 }
 
 #[derive(Elm, ElmDecode, Serialize, Debug, Clone)]
 pub enum Transition {
     IDraw(CardContent),
     TheyDraw,
+    IPlayed(Location),
 }
 
 pub struct Player {
@@ -62,7 +72,6 @@ fn deck() -> Vec<CardContent> {
 
 type GameChanger = (Game, Vec<(UserId, Transition)>);
 
-
 pub struct Game {
     players: Vec<Player>,
     pile: Vec<CardContent>,
@@ -78,7 +87,11 @@ impl Game {
         let n2 = CardContent::NumberCard(2);
         let n3 = CardContent::NumberCard(9);
         let center = [n1, op, n2, eq, n3];
-        Game { players, pile, center }
+        Game {
+            players,
+            pile,
+            center,
+        }
     }
 
     pub fn update(self, msg: ToGame) -> GameChanger {
@@ -87,7 +100,31 @@ impl Game {
                 let user = self.players[0].id;
                 self.draw(user, 1)
             }
+            ToGame::Play(from_hand_pos, to_deck_pos) => {
+                let user = self.players[0].id;
+                self.play(user, from_hand_pos, to_deck_pos)
+            }
         }
+    }
+    pub fn play(mut self, user: UserId, from_hand_pos: usize, to_deck_pos: usize) -> GameChanger {
+        let player = self
+            .players
+            .iter_mut()
+            .find(|p| p.id == user)
+            .expect("Player not part of the game");
+
+        let played_card = player.hand.remove(from_hand_pos);
+        self.pile[to_deck_pos] = played_card;
+
+        let mut transitions = vec![];
+        for player in self.players.iter() {
+            if player.id == user {
+                transitions.push((user, Transition::IPlayed(Location::CenterRow(to_deck_pos))));
+            } else {
+                //transitions.push((user, Transition::TheyDraw));
+            }
+        }
+        (self, transitions)
     }
 
     pub fn draw(mut self, user: UserId, n: usize) -> GameChanger {
@@ -113,6 +150,8 @@ impl Game {
     }
 
     pub fn game_info(&self) -> GameInfo {
-        GameInfo { center: self.center.clone() }
+        GameInfo {
+            center: self.center.clone(),
+        }
     }
 }

@@ -1,14 +1,15 @@
 module Game exposing (Model, Msg, fromBackend, init, subscriptions, update, view)
 
-import Cards exposing (Card, CardId, CardsModel, Location(..), Point, addCard, fold, lastHandId, move, moveCardTo, point, vec)
+import Cards exposing (Card, CardId, CardsModel,  Point, addCard, fold, idsOf, isNumberCard, lastHandId, move, moveCardTo, numberCenterCards, operatorCenterCards, point, swapCenterCards, vec)
 import Draggable
 import Draggable.Events
 import Hades
     exposing
         ( CardContent(..)
+        , GameInfo
+        , Location(..)
         , Operator(..)
         , RealmId(..)
-        , GameInfo
         , ToBackend(..)
         , ToBackendEnvelope(..)
         , ToFrontend(..)
@@ -17,12 +18,23 @@ import Hades
         , toBackendEnvelopeEncoder
         )
 import Html exposing (Html, button, div, p, text)
-import Html.Attributes exposing (class, style)
+import Html.Attributes exposing (class, dropzone, style)
 import Html.Events exposing (onClick)
 import Http exposing (jsonBody)
+import List exposing (isEmpty)
+import Maybe.Extra
 import Point2d exposing (toPixels)
 import String exposing (fromFloat, fromInt)
 import WebAuthn exposing (Msg)
+import Html.Attributes exposing (id)
+import String exposing (dropLeft)
+import Maybe.Extra exposing (values)
+import Point2d exposing (fromPixels)
+import Cards exposing (locationOf)
+import Cards exposing (isInInflight)
+import Cards exposing (removeCard)
+import Cards exposing (consolidateHandCards)
+import Cards exposing (isInCenterRow)
 
 
 type alias Model =
@@ -32,15 +44,22 @@ type alias Model =
     , cards : CardsModel
     , draggedCard : Maybe ( Cards.Card, Point, Int )
     , drag : Draggable.State DragId
+    , highlightedCards : List ( CardId, Highlight )
     }
+
+
+type Highlight
+    = DropZone Highlight
+    | PotentialDrop
 
 
 init : RealmId -> GameInfo -> Model
 init realmId gameInfo =
     { counter = 0
     , realmId = realmId
-    , cardIdGen = 5
+    , cardIdGen = 10
     , cards = Cards.init_ gameInfo
+    , highlightedCards = []
     , draggedCard = Nothing
     , drag = Draggable.init
     }
@@ -96,6 +115,8 @@ type Msg
     | OnDragEnd
     | OnDragBy Draggable.Delta
     | DragMsg (Draggable.Msg DragId)
+    | MouseEnter CardId
+    | MouseLeave CardId
 
 
 updateFromRealm toFrontend model =
@@ -125,10 +146,71 @@ drawFromDeck model content =
         , cards = moveCardTo withNewCard newId (MyHand nextHandPos)
     }
 
+placeInFlightCard : Model -> Location -> Model
+placeInFlightCard model targetLocation =
+    let
+        inFlightCard = List.head <| idsOf isInInflight model.cards
+        cardOnTarget = List.head <| idsOf (\c -> c.location == targetLocation) model.cards
+
+        cards =
+          case (inFlightCard, cardOnTarget) of
+              (Just fromId, Just toId) ->
+                let
+                    (_, withoutPrevCenterCard) = removeCard toId model.cards
+                    toCenter = moveCardTo withoutPrevCenterCard fromId targetLocation 
+                in
+                toCenter
+              _ ->
+                model.cards
+    in
+    { model | cards = consolidateHandCards cards }
+
+
+
+
+removeHighlightFrom : Model -> Model
+removeHighlightFrom model =
+    let
+        replaceHighlight (( c, hl ) as chl) =
+            case hl of
+                DropZone before ->
+                    ( c, before )
+
+                _ ->
+                    chl
+    in
+    { model
+        | highlightedCards = List.map replaceHighlight model.highlightedCards
+    }
+
+
+highlightAsDropZone highlightedCards cardId =
+    let
+        replaceHighlight (( c, hl ) as chl) =
+            if c == cardId then
+                ( c, DropZone hl )
+
+            else
+                chl
+    in
+    List.map replaceHighlight highlightedCards
+
 
 update : { a | webauthn : b } -> Msg -> Model -> ( Model, Cmd Msg )
 update { webauthn } msg model =
     case msg of
+        MouseLeave cardId ->
+            ( removeHighlightFrom model
+            , Cmd.none
+            )
+
+        MouseEnter cardId ->
+            ( { model
+                | highlightedCards = highlightAsDropZone model.highlightedCards cardId
+              }
+            , Cmd.none
+            )
+
         Noop _ ->
             ( model, Cmd.none )
 
@@ -138,11 +220,15 @@ update { webauthn } msg model =
                     ( drawFromDeck model content
                     , Cmd.none
                     )
+                IPlayed targetLocation ->
+                    ( placeInFlightCard model targetLocation
+                    , Cmd.none
+                    )
 
                 TheyDraw ->
                     ( model, Cmd.none )
 
-        GotSendResponse result ->
+        GotSendResponse _ ->
             ( model, Cmd.none )
 
         Draw ->
@@ -157,12 +243,29 @@ update { webauthn } msg model =
             let
                 ( card, cards_ ) =
                     Cards.removeCard cardId model.cards
+
+                highlightedCards =
+                    case card of
+                        Just ( c, _ ) ->
+                            case c.content of
+                                NumberCard _ ->
+                                    idsOf numberCenterCards cards_
+
+                                OperatorCard _ ->
+                                    idsOf operatorCenterCards cards_
+
+                                SwapOperators ->
+                                    idsOf operatorCenterCards cards_
+
+                        Nothing ->
+                            []
             in
             case card of
                 Just ( c, p ) ->
                     ( { model
                         | draggedCard = Just ( c, p, originalHandPos )
                         , cards = cards_
+                        , highlightedCards = List.map (\id -> ( id, PotentialDrop )) highlightedCards
                       }
                     , Cmd.none
                     )
@@ -174,17 +277,37 @@ update { webauthn } msg model =
             case model.draggedCard of
                 Just ( card, pos, originalHandPos ) ->
                     let
+                        {x,y} = toPixels pos
                         fromDrag =
-                            addCard model.cards card.id card (InFlight pos) card.content
+                            addCard model.cards card.id card (InFlight x y) card.content
 
                         toHand =
                             moveCardTo fromDrag card.id (MyHand originalHandPos)
+                        dropZoneCard (id, hl) =
+                          case hl of
+                              DropZone _ -> Just id
+                              _ -> Nothing
+                        dropLocation =
+                            List.head <| values <| List.map dropZoneCard model.highlightedCards
+                        (cards, cmd) =
+                          case dropLocation of
+                              Just droppedOnId ->
+                                case locationOf model.cards droppedOnId of
+                                    Just (CenterRow centerPos) -> 
+                                      (fromDrag, send model.realmId <| Play originalHandPos centerPos )
+                                    _ ->
+                                      (fromDrag, Cmd.none)
+                                      
+                              Nothing ->
+                                (toHand, Cmd.none)
+                          
                     in
                     ( { model
-                        | cards = toHand
+                        | cards = cards
                         , draggedCard = Nothing
+                        , highlightedCards = []
                       }
-                    , Cmd.none
+                    , cmd
                     )
 
                 Nothing ->
@@ -222,13 +345,13 @@ draggedCardView tpl =
                 aniAttrs =
                     style "transform" <| "translate(" ++ fromFloat x ++ "px," ++ fromFloat y ++ "px) rotate(10deg)"
             in
-            [ div [ class "card", aniAttrs ] <| viewCardContent card.content ]
+            [ div [ class "dragged card", aniAttrs ] <| viewCardContent card.content ]
 
         Nothing ->
             []
 
 
-viewCardContent :  CardContent -> List (Html Msg)
+viewCardContent : CardContent -> List (Html Msg)
 viewCardContent content =
     let
         txt =
@@ -250,21 +373,40 @@ viewCardContent content =
                 SwapOperators ->
                     text "="
     in
-        [ div [class "mini"] [txt]
-        , div [class "big"] [txt]
-        ]
+    [ div [ class "mini" ] [ txt ]
+    , div [ class "big" ] [ txt ]
+    ]
 
 
-cardView : Card -> List (Html.Attribute Msg) -> Html Msg
-cardView card aniAttrs =
+highlightClassName : ( CardId, Highlight ) -> String
+highlightClassName ( _, h ) =
+    case h of
+        DropZone _ ->
+            "dropzone"
+
+        PotentialDrop ->
+            "potentialdrop"
+
+
+highlightClass : Maybe ( CardId, Highlight ) -> String
+highlightClass hl =
+    Maybe.map highlightClassName hl
+        |> Maybe.withDefault ""
+
+
+cardView : Bool -> List ( CardId, Highlight ) -> Card -> List (Html.Attribute Msg) -> Html Msg
+cardView isDragging highlightedCards card aniAttrs =
     let
-        originalHandPos =
+        dragTrigger =
             case card.location of
                 MyHand p ->
-                    p
+                  [Draggable.mouseTrigger ( card.id, p ) DragMsg]
 
                 _ ->
-                    0
+                    []
+
+        highLight =
+            highlightClass <| List.head <| List.filter (\( id, _ ) -> id == card.id) highlightedCards
 
         z =
             case card.location of
@@ -277,8 +419,8 @@ cardView card aniAttrs =
                 DiscardPile ->
                     1
 
-                InFlight _ ->
-                    100
+                InFlight _ _ ->
+                    300 -- not used from here but set globally in styles.css
 
                 CenterRow i ->
                     0
@@ -294,21 +436,33 @@ cardView card aniAttrs =
                 DiscardPile ->
                     "discardPile"
 
-                InFlight _ ->
+                InFlight _ _ ->
                     "inFlight"
 
                 CenterRow i ->
                     "centerRow"
+
+        mouseEvents =
+            if isDragging && isInCenterRow card then
+                [ Html.Events.onMouseEnter <| MouseEnter card.id
+                , Html.Events.onMouseLeave <| MouseLeave card.id
+                ]
+
+            else
+                []
     in
     div
-        (Draggable.mouseTrigger ( card.id, originalHandPos ) DragMsg
-            :: (style "zIndex" <| fromInt z)
-            :: class ("card " ++ class_)
-            :: aniAttrs
+            
+            ( (style "zIndex" <| fromInt z)
+            :: class (highLight ++ " card " ++ class_)
+            :: mouseEvents
+            ++ dragTrigger
+            ++ aniAttrs
         )
-        <| viewCardContent card.content
+    <|
+        viewCardContent card.content
 
 
 cardsView : Model -> List (Html Msg)
-cardsView { cards } =
-    Cards.viewAnis cards cardView
+cardsView { cards, highlightedCards, draggedCard } =
+    Cards.viewAnis cards (cardView (Maybe.Extra.isJust draggedCard) highlightedCards)

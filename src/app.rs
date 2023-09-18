@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, error};
 
 use crate::{
-    game::{Game, ToGame, Transition, CardContent, GameInfo},
+    game::{CardContent, Game, GameInfo, ToGame, Transition},
     hades::RealmId,
     startup::{Cmd, Realm},
     users::{SessionId, UserId},
@@ -32,7 +32,6 @@ pub enum ToFrontendLobby {
     UpdateCounter(i32),
     GameStart(RealmId),
 }
-
 
 #[derive(Debug, Clone)]
 pub enum NewRealmHint {
@@ -83,9 +82,13 @@ impl RealmModel {
             (RealmModel::Game(game), Msg::PlayerJoined(user_id)) => {
                 let game_info = game.game_info();
                 (
-                RealmModel::Game(game),
-                realm.to_user(user_id, [ToFrontend::EnteredGame(realm.id.clone(), game_info)]),
-            )},
+                    RealmModel::Game(game),
+                    realm.to_user(
+                        user_id,
+                        [ToFrontend::EnteredGame(realm.id.clone(), game_info)],
+                    ),
+                )
+            }
             (RealmModel::Game(_), Msg::NewGameStarted(_, _)) => todo!(),
             (RealmModel::Lobby(l), Msg::PlayerJoined(_)) => (RealmModel::Lobby(l), realm.nothing()),
         }

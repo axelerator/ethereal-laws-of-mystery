@@ -2,7 +2,7 @@ module Cards exposing (..)
 
 import Browser.Events exposing (onAnimationFrameDelta)
 import Ease exposing (outCubic)
-import Hades exposing (CardContent(..), GameInfo)
+import Hades exposing (CardContent(..), GameInfo, Location(..))
 import Html exposing (Attribute, Html, div, p, text)
 import Html.Attributes exposing (class, id, style)
 import Html.Events exposing (onClick)
@@ -12,6 +12,7 @@ import Pixels
 import Point2d exposing (toPixels)
 import String exposing (fromFloat)
 import Vector2d
+import Json.Decode exposing (bool)
 
 
 type Msg
@@ -59,7 +60,6 @@ init_ { center } =
         { cards = cards
         , visuals = visuals
         }
-
 
 subscriptions_ : CardsModel -> (Float -> msg) -> Sub msg
 subscriptions_ (CardsModel { visuals }) gotFrame_ =
@@ -218,8 +218,15 @@ updateAni cards visuals =
 
         newAnis =
             List.map newPos newCards
+        
     in
-    updatedExisting ++ newAnis
+    List.filter (not << isVanished) <| updatedExisting ++ newAnis
+
+isVanished : (Card, Animating) -> Bool
+isVanished (_, a) =
+  case a of
+      Vanished -> True
+      _ -> False
 
 
 findNew : List Card -> Visuals -> List Card
@@ -356,11 +363,65 @@ isInMyHand { location } =
         _ ->
             False
 
+isInCenterRow : Card -> Bool
+isInCenterRow { location } =
+    case location of
+        CenterRow _ ->
+            True
+
+        _ ->
+            False
+
+isInInflight : Card -> Bool
+isInInflight { location } =
+    case location of
+        InFlight _ _ ->
+            True
+
+        _ ->
+            False
+
+isOperandCard : Card -> Bool
+isOperandCard { content } =
+  case content of
+      OperatorCard _ -> True
+      _ -> False
+
+isSwapCard : Card -> Bool
+isSwapCard { content } =
+  case content of
+      SwapOperators -> True
+      _ -> False
+
+isNumberCard : Card -> Bool
+isNumberCard { content } =
+  case content of
+      NumberCard _ -> True
+      _ -> False
 
 myHandCards : List Card -> List Card
 myHandCards cards =
     List.filter isInMyHand cards
 
+numberCenterCards : Card -> Bool
+numberCenterCards c =
+    isInCenterRow c && isNumberCard c
+
+operatorCenterCards : Card -> Bool
+operatorCenterCards c =
+     isInCenterRow c && isOperandCard c
+
+swapCenterCards : Card -> Bool
+swapCenterCards c =
+    isInCenterRow c && isSwapCard c
+
+idsOf : (Card -> Bool) -> CardsModel -> List CardId
+idsOf predicate (CardsModel {cards}) =
+  List.map .id <| List.filter predicate cards
+
+locationOf : CardsModel -> CardId -> Maybe Location
+locationOf (CardsModel {cards}) cardId =
+  Maybe.map .location <| List.head <| List.filter (\c -> c.id == cardId) cards
 
 screenPos : List Card -> Location -> Props
 screenPos cards loc =
@@ -390,8 +451,8 @@ screenPos cards loc =
             , degrees = startSpread + degreePerCard * toFloat p
             }
 
-        InFlight p ->
-            { pos = p
+        InFlight x y ->
+            { pos = point x y
             , opacity = 1.0
             , degrees = 10
             }
@@ -419,20 +480,12 @@ type alias CardId =
     Int
 
 
-type Location
-    = Deck
-    | MyHand Int
-    | DiscardPile
-    | InFlight Point
-    | CenterRow Int
-
 
 type alias Card =
     { id : CardId
     , location : Location
     , content : CardContent
     }
-
 
 type Animating
     = Animation Float Props Props Float
@@ -614,4 +667,4 @@ viewAni viewCard ( { id, content } as card, a ) =
 
 viewAnis : CardsModel -> (Card -> List (Attribute msg) -> Html msg) -> List (Html msg)
 viewAnis (CardsModel { visuals }) viewCard =
-    List.reverse <| List.map (viewAni viewCard) visuals
+    List.map (viewAni viewCard) visuals
