@@ -115,6 +115,17 @@ impl RealmMembersStore {
             .cloned()
             .unwrap_or_default()
     }
+
+    pub fn memberships(&self, user_id: &UserId) -> Vec<RealmId> {
+        // todo: do this more efficiently
+        let mut realm_ids = vec![];
+        for (realm_id, users) in self.users_by_realm.iter() {
+            if users.contains(user_id) {
+                realm_ids.push(realm_id.clone());
+            }
+        }
+        realm_ids
+    }
 }
 
 #[derive(Clone)]
@@ -638,20 +649,22 @@ impl AppState {
         &self,
         session_id: &SessionId,
         user_id: &UserId,
-        realm_id: &RealmId,
     ) -> std::result::Result<ReceiverStream<ToFrontendEnvelope>, String> {
-        self.enter_realm(session_id, user_id, realm_id).await?;
-
         let (inbox, receiver) = mpsc::channel(32);
 
         let mut event_inboxes = self.events_inbox_by_session_id.write().await;
         event_inboxes.insert(session_id.clone(), inbox);
         drop(event_inboxes);
 
-        debug!(
-            "User({:?}) with session({:?}) entered '{:?}'",
-            user_id, session_id, realm_id
-        );
+        let memberships = self.realm_members.read().await.memberships(&user_id);
+
+        for realm_id in memberships {
+            debug!("New session is already in {:?}", realm_id);
+            self.enter_realm(session_id, user_id, &realm_id)
+                .await
+                .unwrap();
+        }
+
         Ok(ReceiverStream::new(receiver))
     }
 

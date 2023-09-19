@@ -11,10 +11,11 @@ type alias WithWebAuthnPort msg =
     }
 
 
-initOnLogin : WithWebAuthnPort msg -> String -> ( Model, Cmd msg )
+initOnLogin : WithWebAuthnPort msg -> String -> ( Model, Cmd msg, Cmd Msg )
 initOnLogin { webauthn } username =
     ( OnLogin username
     , webauthn ( "init", js )
+    , test
     )
 
 
@@ -32,6 +33,7 @@ type Msg
     | GotoLogin
     | GotoSignup
     | Noop (Result Http.Error String)
+    | GotRememberMeResponse (Result Http.Error String)
     | Test
 
 
@@ -59,6 +61,19 @@ update { webauthn } msg model =
             ( model
             , Cmd.none
             )
+        GotRememberMeResponse res ->
+          case res of
+            Ok ("yay") ->
+              ( model
+              , webauthn ("establishSSEconnection", "")
+              )
+            _ ->
+              let
+                  _ = Debug.log "nay?" res
+              in
+              ( model
+              , Cmd.none
+              )
 
         LoginUsernameChanged newUsername ->
             ( OnLogin newUsername
@@ -141,8 +156,8 @@ registerFinish username =
 test : Cmd Msg
 test =
     Http.get
-        { url = "/test"
-        , expect = Http.expectString Noop
+        { url = "/remember"
+        , expect = Http.expectString GotRememberMeResponse
         }
 
 js =
@@ -224,18 +239,21 @@ window.webauthnElm = {
             console.log("Login response", response);
             if (response.ok){
               console.log("Successfully logged in!", response.body);
-              window.webauthnElm.incomingPort.send(['login', '']);
-              const eventSource = new EventSource('/events');
-              window.webauthnElm.eventSource = eventSource;
-              eventSource.onmessage = (event) => {
-                window.webauthnElm.incomingPort.send(['event', event.data])
-              }
-
+              window.webauthnElm.establishSSEconnection();
             } else {
               console.log("Error whilst logging in!");
             }
           });
       });
+  },
+  establishSSEconnection: () => {
+    window.webauthnElm.incomingPort.send(['login', '']);
+    const eventSource = new EventSource('/events');
+    window.webauthnElm.eventSource = eventSource;
+    eventSource.onmessage = (event) => {
+      window.webauthnElm.incomingPort.send(['event', event.data])
+    }
+
   },
   portHandler: (data) => {
     if (data[0] == 'createCredentials') {
@@ -247,6 +265,9 @@ window.webauthnElm = {
     if (data[0] == 'logout') {
       window.webauthnElm.eventSource.close();
       window.webauthnElm.eventSource = null;
+    }
+    if (data[0] == 'establishSSEconnection') {
+      window.webauthnElm.establishSSEconnection();
     }
 
   },

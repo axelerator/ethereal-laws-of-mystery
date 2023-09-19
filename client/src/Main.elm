@@ -46,11 +46,11 @@ type Model
 init : () -> ( Model, Cmd Msg )
 init _ =
     let
-        ( model, cmd ) =
+        ( model, cmd, cmd_ ) =
             WebAuthn.initOnLogin { webauthn = portOut } "at"
     in
     ( OnLogin <| model
-    , Cmd.map ForWebauthn cmd
+    , Cmd.batch [Cmd.map ForWebauthn cmd, Cmd.map ForWebauthn cmd_]
     )
 
 

@@ -2,6 +2,7 @@ use crate::{
     hades::{write_elm_types, ToFrontendEnvelope},
     startup::AppState,
 };
+use app::ToFrontend;
 use auth::USER_INFO;
 use axum::{
     extract::Extension,
@@ -24,6 +25,7 @@ use tokio_stream::{wrappers::ReceiverStream, StreamExt as _};
 use tower_http::services::{ServeDir, ServeFile};
 use tracing::{debug, error};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use users::{SessionId, UserId};
 
 mod app;
 mod auth;
@@ -60,6 +62,7 @@ async fn main() {
     let session_layer = SessionLayer::new(store, &secret)
         .with_cookie_name("webauthnrs")
         .with_same_site_policy(SameSite::Lax)
+        .with_http_only(false) // to allow remember session via JS
         .with_secure(false); // TODO: change this to true when running on an HTTPS/production server instead of locally
     let serve_dir = ServeDir::new("www/assets").not_found_service(ServeFile::new("www/index.html"));
 
@@ -71,6 +74,7 @@ async fn main() {
         .route("/register_finish", post(finish_register))
         .route("/login_start/:username", post(start_authentication))
         .route("/login_finish", post(finish_authentication))
+        .route("/remember", get(remember_handler))
         .route("/send", post(send))
         .route("/events", get(sse_handler))
         .layer(Extension(app_state))
@@ -102,16 +106,10 @@ async fn sse_handler(
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let session_id_opt = session.get(USER_INFO);
     let src = if let Some((session_id, user_id)) = session_id_opt {
-        let lobby_id = RealmId::Lobby;
-        if let Ok(s) = app_state
-            .register_new_session(&session_id, &user_id, &lobby_id)
+        app_state
+            .register_new_session(&session_id, &user_id)
             .await
-        {
-            s
-        } else {
-            error!("User {:?} not allowed to enter '{:?}'", user_id, lobby_id);
-            unauthorized_stream().await
-        }
+            .unwrap()
     } else {
         unauthorized_stream().await
     };
@@ -129,6 +127,15 @@ async fn sse_handler(
             .text("keep-alive-text"),
     )
 }
+
+pub async fn remember_handler(session: ReadableSession) -> Result<impl IntoResponse, Infallible> {
+    if let Some((session_id, user_id)) = session.get::<(SessionId, UserId)>(USER_INFO) {
+        Ok("yay")
+    } else {
+        Ok("nay")
+    }
+}
+
 pub async fn send(
     Extension(app_state): Extension<AppState>,
     session: ReadableSession,
