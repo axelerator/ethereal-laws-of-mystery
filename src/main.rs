@@ -2,7 +2,7 @@ use crate::{
     hades::{write_elm_types, ToFrontendEnvelope},
     startup::AppState,
 };
-use app::ToFrontend;
+
 use auth::USER_INFO;
 use axum::{
     extract::Extension,
@@ -16,14 +16,14 @@ use axum_sessions::extractors::ReadableSession;
 use axum_sessions::{async_session::MemoryStore, SameSite, SessionLayer};
 use error::WebauthnError;
 use futures::stream::Stream;
-use hades::{RealmId, ToBackendEnvelope};
+use hades::ToBackendEnvelope;
 use rand::thread_rng;
 use rand::Rng;
 use std::{convert::Infallible, net::SocketAddr, time::Duration};
 use tokio::sync::mpsc;
 use tokio_stream::{wrappers::ReceiverStream, StreamExt as _};
 use tower_http::services::{ServeDir, ServeFile};
-use tracing::{debug, error};
+use tracing::debug;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use users::{SessionId, UserId};
 
@@ -129,7 +129,7 @@ async fn sse_handler(
 }
 
 pub async fn remember_handler(session: ReadableSession) -> Result<impl IntoResponse, Infallible> {
-    if let Some((session_id, user_id)) = session.get::<(SessionId, UserId)>(USER_INFO) {
+    if let Some((_, _)) = session.get::<(SessionId, UserId)>(USER_INFO) {
         Ok("yay")
     } else {
         Ok("nay")

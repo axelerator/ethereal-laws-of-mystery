@@ -1,9 +1,9 @@
 use elm_rs::{Elm, ElmDecode, ElmEncode};
 use serde::{Deserialize, Serialize};
-use tracing::{debug, error};
+use tracing::error;
 
 use crate::{
-    game::{CardContent, Game, GameInfo, ToGame, Transition},
+    game::{Game, GameInfo, ToGame, Transition},
     hades::RealmId,
     startup::{Cmd, Realm},
     users::{SessionId, UserId},
