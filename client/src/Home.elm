@@ -33,9 +33,7 @@ fromBackend toFrontend =
 
 
 type Msg
-    = Moar
-    | Less
-    | GotSendResponse (Result Http.Error ())
+    = GotSendResponse (Result Http.Error ())
     | FromBackend ToFrontendLobby
     | Go
 
@@ -66,16 +64,6 @@ update { webauthn } msg model =
         GotSendResponse result ->
             ( model, Cmd.none )
 
-        Moar ->
-            ( model
-            , send Increment
-            )
-
-        Less ->
-            ( model
-            , send Decrement
-            )
-
         Go ->
             ( model
             , send StartGame
@@ -83,9 +71,5 @@ update { webauthn } msg model =
 
 view model =
     div []
-        [ text <| String.fromInt model.counter
-        , br [] []
-        , button [ onClick Less ] [ text "less" ]
-        , button [ onClick Moar ] [ text "moar" ]
-        , button [ onClick Go ] [ text "start" ]
+        [ button [ onClick Go ] [ text "Single Player" ]
         ]

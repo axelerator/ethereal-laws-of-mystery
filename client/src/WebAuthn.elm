@@ -129,8 +129,7 @@ view model =
             div []
                 [ input [ value username, onInput LoginUsernameChanged ] []
                 , button [ onClick <| Login username ] [ text "login" ]
-                , a [onClick GotoSignup] [text "goto signup"]
-                , a [onClick Test] [text "test"]
+                , button [ class "secondary", onClick GotoSignup] [text "goto signup"]
                 ]
 
 

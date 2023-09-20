@@ -1,6 +1,9 @@
+use std::str::FromStr;
+
 use elm_rs::{Elm, ElmDecode, ElmEncode};
 use serde::{Deserialize, Serialize};
 use tracing::error;
+use webauthn_rs::prelude::Uuid;
 
 use crate::{
     game::{Game, GameInfo, ToGame, Transition},
@@ -58,7 +61,13 @@ impl RealmModel {
     pub fn new(hint: Option<NewRealmHint>) -> RealmModel {
         match hint {
             None => RealmModel::Lobby(Lobby { counter: 0 }),
-            Some(NewRealmHint::Game(user_ids)) => RealmModel::Game(Game::new(user_ids)),
+            Some(NewRealmHint::Game(user_ids)) => {
+                let mut user_ids = user_ids.clone();
+                let op = Uuid::from_str("c75fc47f-9e90-4bf3-a18d-17850ed9f7c8").unwrap();
+                user_ids.push(op);
+
+                RealmModel::Game(Game::new(user_ids))
+            },
         }
     }
 
@@ -72,6 +81,10 @@ impl RealmModel {
     pub fn update(self, msg: Msg, realm: Realm) -> (RealmModel, Cmd) {
         match (self, msg) {
             (RealmModel::Lobby(lobby), Msg::NewGameStarted(new_realm, user_ids)) => {
+                let mut user_ids = user_ids.clone();
+                let op = Uuid::from_str("c75fc47f-9e90-4bf3-a18d-17850ed9f7c8").unwrap();
+                user_ids.push(op);
+
                 let game_start =
                     |realm_id| ToFrontend::ToLobbyFrontend(ToFrontendLobby::GameStart(realm_id));
                 let cmds = user_ids
@@ -80,7 +93,7 @@ impl RealmModel {
                 (RealmModel::Lobby(lobby), new_realm.batch(cmds))
             }
             (RealmModel::Game(game), Msg::PlayerJoined(user_id)) => {
-                let game_info = game.game_info();
+                let game_info = game.game_info(user_id);
                 (
                     RealmModel::Game(game),
                     realm.to_user(
@@ -109,7 +122,7 @@ impl RealmModel {
             }
 
             (RealmModel::Game(game), ToBackend::ForGame(to_game)) => {
-                let (updated_game, transitions) = game.update(to_game);
+                let (updated_game, transitions) = game.update(to_game, &user_id);
                 let cmds = transitions
                     .into_iter()
                     .map(|(user_id, transition)| {

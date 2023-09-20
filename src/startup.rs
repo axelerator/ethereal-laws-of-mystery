@@ -563,10 +563,10 @@ type RealmManagerInbox = Sender<RealmManagerMsg>;
 impl AppState {
     pub async fn new() -> Self {
         // Effective domain name.
-        let rp_id = "localhost";
+        let rp_id = "elmcards.axelerator.de";
         // Url containing the effective domain name
         // MUST include the port number!
-        let rp_origin = Url::parse("http://localhost:8080").expect("Invalid URL");
+        let rp_origin = Url::parse("https://elmcards.axelerator.de:8080").expect("Invalid URL");
         let builder = WebauthnBuilder::new(rp_id, &rp_origin).expect("Invalid configuration");
 
         // Now, with the builder you can define other options.

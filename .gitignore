@@ -2,3 +2,5 @@
 /db.*
 /client/elm-stuff
 /client/main.js
+.DS_Store
+self_signed_certs

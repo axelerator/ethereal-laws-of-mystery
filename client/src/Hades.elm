@@ -86,6 +86,8 @@ toLobbyEncoder enum =
 type ToGame
     = DrawFromPile
     | Play (Int) (Int)
+    | LeaveGame
+    | RestartGame
 
 
 toGameEncoder : ToGame -> Json.Encode.Value
@@ -95,12 +97,18 @@ toGameEncoder enum =
             Json.Encode.string "DrawFromPile"
         Play t0 t1 ->
             Json.Encode.object [ ( "Play", Json.Encode.list identity [ Json.Encode.int t0, Json.Encode.int t1 ] ) ]
+        LeaveGame ->
+            Json.Encode.string "LeaveGame"
+        RestartGame ->
+            Json.Encode.string "RestartGame"
 
 type Location
     = Deck
     | MyHand (Int)
+    | TheirHand (Int) (Int)
     | DiscardPile
     | InFlight (Float) (Float)
+    | InFlightOpen (Float) (Float)
     | CenterRow (Int)
 
 
@@ -111,10 +119,14 @@ locationEncoder enum =
             Json.Encode.string "Deck"
         MyHand inner ->
             Json.Encode.object [ ( "MyHand", Json.Encode.int inner ) ]
+        TheirHand t0 t1 ->
+            Json.Encode.object [ ( "TheirHand", Json.Encode.list identity [ Json.Encode.int t0, Json.Encode.int t1 ] ) ]
         DiscardPile ->
             Json.Encode.string "DiscardPile"
         InFlight t0 t1 ->
             Json.Encode.object [ ( "InFlight", Json.Encode.list identity [ Json.Encode.float t0, Json.Encode.float t1 ] ) ]
+        InFlightOpen t0 t1 ->
+            Json.Encode.object [ ( "InFlightOpen", Json.Encode.list identity [ Json.Encode.float t0, Json.Encode.float t1 ] ) ]
         CenterRow inner ->
             Json.Encode.object [ ( "CenterRow", Json.Encode.int inner ) ]
 
@@ -191,24 +203,40 @@ toFrontendLobbyDecoder =
 
 type Transition
     = IDraw (CardContent)
-    | TheyDraw
+    | TheyDraw (Int)
     | IPlayed (Location)
+    | TheyPlayed (Location) (Location) (CardContent)
+    | IWon
+    | ILost
+    | TurnChanged (Int)
 
 
 transitionDecoder : Json.Decode.Decoder Transition
 transitionDecoder = 
     Json.Decode.oneOf
         [ Json.Decode.map IDraw (Json.Decode.field "IDraw" (cardContentDecoder))
+        , Json.Decode.map TheyDraw (Json.Decode.field "TheyDraw" (Json.Decode.int))
+        , Json.Decode.map IPlayed (Json.Decode.field "IPlayed" (locationDecoder))
+        , Json.Decode.field "TheyPlayed" (Json.Decode.succeed TheyPlayed |> Json.Decode.andThen (\x -> Json.Decode.index 0 (locationDecoder) |> Json.Decode.map x) |> Json.Decode.andThen (\x -> Json.Decode.index 1 (locationDecoder) |> Json.Decode.map x) |> Json.Decode.andThen (\x -> Json.Decode.index 2 (cardContentDecoder) |> Json.Decode.map x))
         , Json.Decode.string
             |> Json.Decode.andThen
                 (\x ->
                     case x of
-                        "TheyDraw" ->
-                            Json.Decode.succeed TheyDraw
+                        "IWon" ->
+                            Json.Decode.succeed IWon
                         unexpected ->
                             Json.Decode.fail <| "Unexpected variant " ++ unexpected
                 )
-        , Json.Decode.map IPlayed (Json.Decode.field "IPlayed" (locationDecoder))
+        , Json.Decode.string
+            |> Json.Decode.andThen
+                (\x ->
+                    case x of
+                        "ILost" ->
+                            Json.Decode.succeed ILost
+                        unexpected ->
+                            Json.Decode.fail <| "Unexpected variant " ++ unexpected
+                )
+        , Json.Decode.map TurnChanged (Json.Decode.field "TurnChanged" (Json.Decode.int))
         ]
 
 type CardContent
@@ -272,14 +300,24 @@ operatorDecoder =
         ]
 
 type alias GameInfo =
-    { center : List (CardContent)
+    { pileSize : Int
+    , center : List (CardContent)
+    , hand : List (CardContent)
+    , gameState : GameState
+    , opponents : List (Opponent)
+    , turn : Int
     }
 
 
 gameInfoDecoder : Json.Decode.Decoder GameInfo
 gameInfoDecoder =
     Json.Decode.succeed GameInfo
+        |> Json.Decode.andThen (\x -> Json.Decode.map x (Json.Decode.field "pile_size" (Json.Decode.int)))
         |> Json.Decode.andThen (\x -> Json.Decode.map x (Json.Decode.field "center" (Json.Decode.list (cardContentDecoder))))
+        |> Json.Decode.andThen (\x -> Json.Decode.map x (Json.Decode.field "hand" (Json.Decode.list (cardContentDecoder))))
+        |> Json.Decode.andThen (\x -> Json.Decode.map x (Json.Decode.field "game_state" (gameStateDecoder)))
+        |> Json.Decode.andThen (\x -> Json.Decode.map x (Json.Decode.field "opponents" (Json.Decode.list (opponentDecoder))))
+        |> Json.Decode.andThen (\x -> Json.Decode.map x (Json.Decode.field "turn" (Json.Decode.int)))
 
 
 locationDecoder : Json.Decode.Decoder Location
@@ -295,6 +333,7 @@ locationDecoder =
                             Json.Decode.fail <| "Unexpected variant " ++ unexpected
                 )
         , Json.Decode.map MyHand (Json.Decode.field "MyHand" (Json.Decode.int))
+        , Json.Decode.field "TheirHand" (Json.Decode.succeed TheirHand |> Json.Decode.andThen (\x -> Json.Decode.index 0 (Json.Decode.int) |> Json.Decode.map x) |> Json.Decode.andThen (\x -> Json.Decode.index 1 (Json.Decode.int) |> Json.Decode.map x))
         , Json.Decode.string
             |> Json.Decode.andThen
                 (\x ->
@@ -305,6 +344,40 @@ locationDecoder =
                             Json.Decode.fail <| "Unexpected variant " ++ unexpected
                 )
         , Json.Decode.field "InFlight" (Json.Decode.succeed InFlight |> Json.Decode.andThen (\x -> Json.Decode.index 0 (Json.Decode.float) |> Json.Decode.map x) |> Json.Decode.andThen (\x -> Json.Decode.index 1 (Json.Decode.float) |> Json.Decode.map x))
+        , Json.Decode.field "InFlightOpen" (Json.Decode.succeed InFlightOpen |> Json.Decode.andThen (\x -> Json.Decode.index 0 (Json.Decode.float) |> Json.Decode.map x) |> Json.Decode.andThen (\x -> Json.Decode.index 1 (Json.Decode.float) |> Json.Decode.map x))
         , Json.Decode.map CenterRow (Json.Decode.field "CenterRow" (Json.Decode.int))
         ]
+
+type GameState
+    = Running
+    | GameOver (Bool)
+
+
+gameStateDecoder : Json.Decode.Decoder GameState
+gameStateDecoder = 
+    Json.Decode.oneOf
+        [ Json.Decode.string
+            |> Json.Decode.andThen
+                (\x ->
+                    case x of
+                        "Running" ->
+                            Json.Decode.succeed Running
+                        unexpected ->
+                            Json.Decode.fail <| "Unexpected variant " ++ unexpected
+                )
+        , Json.Decode.map GameOver (Json.Decode.field "GameOver" (Json.Decode.bool))
+        ]
+
+type alias Opponent =
+    { name : String
+    , handSize : Int
+    }
+
+
+opponentDecoder : Json.Decode.Decoder Opponent
+opponentDecoder =
+    Json.Decode.succeed Opponent
+        |> Json.Decode.andThen (\x -> Json.Decode.map x (Json.Decode.field "name" (Json.Decode.string)))
+        |> Json.Decode.andThen (\x -> Json.Decode.map x (Json.Decode.field "hand_size" (Json.Decode.int)))
+
 

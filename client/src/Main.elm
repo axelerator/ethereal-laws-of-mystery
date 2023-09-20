@@ -130,8 +130,12 @@ update msg model =
                         FromRealm toFrontend ->
                             case toFrontend of
                                 EnteredGame realmId gameInfo ->
-                                  (OnGame <| Game.init realmId gameInfo
-                                  , Cmd.none
+                                  let
+                                      (model__, cmd_) = Game.init realmId gameInfo
+                                  in
+                                  
+                                  (OnGame model__
+                                  , Cmd.map ForGame cmd_
                                   )
                                 ToGameFrontend forGame ->
                                   noop

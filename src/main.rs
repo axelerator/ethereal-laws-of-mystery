@@ -12,6 +12,8 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use axum_server;
+use axum_server::tls_rustls::RustlsConfig;
 use axum_sessions::extractors::ReadableSession;
 use axum_sessions::{async_session::MemoryStore, SameSite, SessionLayer};
 use error::WebauthnError;
@@ -19,7 +21,7 @@ use futures::stream::Stream;
 use hades::ToBackendEnvelope;
 use rand::thread_rng;
 use rand::Rng;
-use std::{convert::Infallible, net::SocketAddr, time::Duration};
+use std::{convert::Infallible, net::SocketAddr, path::PathBuf, time::Duration};
 use tokio::sync::mpsc;
 use tokio_stream::{wrappers::ReceiverStream, StreamExt as _};
 use tower_http::services::{ServeDir, ServeFile};
@@ -39,11 +41,25 @@ use crate::auth::{finish_authentication, finish_register, start_authentication, 
 
 #[tokio::main]
 async fn main() {
+    let config = RustlsConfig::from_pem_file(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("self_signed_certs")
+            .join("elmcards.ca.pem"),
+        //.join("cert.pem"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("self_signed_certs")
+            .join("elmcards.ca-key.pem"),
+        //join("key.pem"),
+    )
+    .await
+    .unwrap();
+
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| "elm_webauthn=debug,tower_http=debug,".into())
                 .add_directive("hyper::proto::h1::io=error".parse().unwrap())
+                .add_directive("h2::codec=error".parse().unwrap())
                 .add_directive("hyper::proto::h1::conn=error".parse().unwrap()),
         )
         .with(tracing_subscriber::fmt::layer())
@@ -84,7 +100,7 @@ async fn main() {
     // `axum::Server` is a re-export of `hyper::Server`
     let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
     debug!("listening on {addr}");
-    axum::Server::bind(&addr)
+    axum_server::bind_rustls(addr, config)
         .serve(app.into_make_service())
         .await
         .unwrap();
