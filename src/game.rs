@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::users::UserId;
+use crate::{hades::RealmId, users::UserId};
 use elm_rs::{Elm, ElmDecode, ElmEncode};
 use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Elm, ElmDecode, Serialize, Debug, Clone)]
 pub struct GameInfo {
     pile_size: usize,
+    discard_pile: Vec<CardContent>,
     center: [CardContent; 5],
     hand: Vec<CardContent>,
     game_state: GameState,
@@ -42,7 +43,7 @@ pub enum Location {
     Deck,
     MyHand(HandPosition),
     TheirHand(RelativeOpponent, HandPosition),
-    DiscardPile,
+    DiscardPile(usize),
     InFlight(f32, f32),
     InFlightOpen(f32, f32),
     CenterRow(usize),
@@ -57,6 +58,7 @@ pub enum Transition {
     IWon,
     ILost,
     TurnChanged(RelativeOpponent),
+    GameEnded(RealmId),
 }
 
 type RelativeOpponent = usize;
@@ -110,6 +112,7 @@ type GameChanger = (Game, Vec<(UserId, Transition)>);
 pub struct Game {
     players: Vec<Player>,
     pile: Vec<CardContent>,
+    discard_pile: Vec<CardContent>,
     center: [CardContent; 5],
     winner: Option<UserId>,
     voted_for_restart: HashSet<UserId>,
@@ -118,7 +121,7 @@ pub struct Game {
 impl Game {
     pub fn new(user_ids: Vec<UserId>) -> Game {
         let current_player = user_ids[0];
-        let mut players : Vec<Player> = user_ids.into_iter().map(Player::new).collect();
+        let mut players: Vec<Player> = user_ids.into_iter().map(Player::new).collect();
         let mut pile = deck();
         let op = CardContent::OperatorCard(Operator::Plus);
         let eq = CardContent::SwapOperators;
@@ -140,6 +143,7 @@ impl Game {
             winner: None,
             voted_for_restart,
             current_player,
+            discard_pile: vec![],
         }
     }
 
@@ -156,6 +160,13 @@ impl Game {
             }
             ToGame::LeaveGame => (self, vec![]),
             ToGame::RestartGame => self.restart(user_id),
+        }
+    }
+
+    pub fn is_over(&self) -> bool {
+        match self.winner {
+            Some(_) => true,
+            None => false,
         }
     }
 
@@ -190,7 +201,8 @@ impl Game {
             "Played card: {:?} to deck pos: {:?}",
             played_card, to_deck_pos
         );
-        self.center[to_deck_pos] = played_card;
+        let discarded_card = std::mem::replace(&mut self.center[to_deck_pos], played_card);
+        self.discard_pile.push(discarded_card);
 
         if let Some(game_over_transition) = self.is_game_over(user) {
             transitions.extend(game_over_transition);
@@ -233,6 +245,7 @@ impl Game {
 
         let hand = player.hand.clone();
         let pile_size = self.pile.len();
+        let discard_pile = self.discard_pile.clone();
         let game_state = match self.winner {
             None => GameState::Running,
             Some(winner) => GameState::GameOver(winner == player_id),
@@ -253,6 +266,7 @@ impl Game {
             center: self.center.clone(),
             hand,
             pile_size,
+            discard_pile,
             game_state,
             opponents,
             turn: self.player_relative_to(&self.current_player, &player_id),
@@ -280,7 +294,7 @@ impl Game {
 
     fn is_game_over(&self, user_id: &UserId) -> Option<Vec<(UserId, Transition)>> {
         if self.numbers_match() {
-            let mut transitions =  vec![];
+            let mut transitions = vec![];
             for player in self.players.iter() {
                 if &player.id == user_id {
                     transitions.push((player.id, Transition::IWon));
@@ -289,7 +303,6 @@ impl Game {
                 }
             }
             Some(transitions)
-
         } else {
             None
         }

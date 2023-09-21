@@ -103,7 +103,7 @@ type Location
     = Deck
     | MyHand (Int)
     | TheirHand (Int) (Int)
-    | DiscardPile
+    | DiscardPile (Int)
     | InFlight (Float) (Float)
     | InFlightOpen (Float) (Float)
     | CenterRow (Int)
@@ -118,8 +118,8 @@ locationEncoder enum =
             Json.Encode.object [ ( "MyHand", Json.Encode.int inner ) ]
         TheirHand t0 t1 ->
             Json.Encode.object [ ( "TheirHand", Json.Encode.list identity [ Json.Encode.int t0, Json.Encode.int t1 ] ) ]
-        DiscardPile ->
-            Json.Encode.string "DiscardPile"
+        DiscardPile inner ->
+            Json.Encode.object [ ( "DiscardPile", Json.Encode.int inner ) ]
         InFlight t0 t1 ->
             Json.Encode.object [ ( "InFlight", Json.Encode.list identity [ Json.Encode.float t0, Json.Encode.float t1 ] ) ]
         InFlightOpen t0 t1 ->
@@ -214,6 +214,7 @@ type Transition
     | IWon
     | ILost
     | TurnChanged (Int)
+    | GameEnded (RealmId)
 
 
 transitionDecoder : Json.Decode.Decoder Transition
@@ -242,6 +243,7 @@ transitionDecoder =
                             Json.Decode.fail <| "Unexpected variant " ++ unexpected
                 )
         , Json.Decode.map TurnChanged (Json.Decode.field "TurnChanged" (Json.Decode.int))
+        , Json.Decode.map GameEnded (Json.Decode.field "GameEnded" (realmIdDecoder))
         ]
 
 type CardContent
@@ -306,6 +308,7 @@ operatorDecoder =
 
 type alias GameInfo =
     { pileSize : Int
+    , discardPile : List (CardContent)
     , center : List (CardContent)
     , hand : List (CardContent)
     , gameState : GameState
@@ -318,6 +321,7 @@ gameInfoDecoder : Json.Decode.Decoder GameInfo
 gameInfoDecoder =
     Json.Decode.succeed GameInfo
         |> Json.Decode.andThen (\x -> Json.Decode.map x (Json.Decode.field "pile_size" (Json.Decode.int)))
+        |> Json.Decode.andThen (\x -> Json.Decode.map x (Json.Decode.field "discard_pile" (Json.Decode.list (cardContentDecoder))))
         |> Json.Decode.andThen (\x -> Json.Decode.map x (Json.Decode.field "center" (Json.Decode.list (cardContentDecoder))))
         |> Json.Decode.andThen (\x -> Json.Decode.map x (Json.Decode.field "hand" (Json.Decode.list (cardContentDecoder))))
         |> Json.Decode.andThen (\x -> Json.Decode.map x (Json.Decode.field "game_state" (gameStateDecoder)))
@@ -339,15 +343,7 @@ locationDecoder =
                 )
         , Json.Decode.map MyHand (Json.Decode.field "MyHand" (Json.Decode.int))
         , Json.Decode.field "TheirHand" (Json.Decode.succeed TheirHand |> Json.Decode.andThen (\x -> Json.Decode.index 0 (Json.Decode.int) |> Json.Decode.map x) |> Json.Decode.andThen (\x -> Json.Decode.index 1 (Json.Decode.int) |> Json.Decode.map x))
-        , Json.Decode.string
-            |> Json.Decode.andThen
-                (\x ->
-                    case x of
-                        "DiscardPile" ->
-                            Json.Decode.succeed DiscardPile
-                        unexpected ->
-                            Json.Decode.fail <| "Unexpected variant " ++ unexpected
-                )
+        , Json.Decode.map DiscardPile (Json.Decode.field "DiscardPile" (Json.Decode.int))
         , Json.Decode.field "InFlight" (Json.Decode.succeed InFlight |> Json.Decode.andThen (\x -> Json.Decode.index 0 (Json.Decode.float) |> Json.Decode.map x) |> Json.Decode.andThen (\x -> Json.Decode.index 1 (Json.Decode.float) |> Json.Decode.map x))
         , Json.Decode.field "InFlightOpen" (Json.Decode.succeed InFlightOpen |> Json.Decode.andThen (\x -> Json.Decode.index 0 (Json.Decode.float) |> Json.Decode.map x) |> Json.Decode.andThen (\x -> Json.Decode.index 1 (Json.Decode.float) |> Json.Decode.map x))
         , Json.Decode.map CenterRow (Json.Decode.field "CenterRow" (Json.Decode.int))

@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
-use tracing::error;
 use elm_rs::{Elm, ElmDecode, ElmEncode};
 use serde::{Deserialize, Serialize};
+use tracing::error;
 
 use crate::{
     game::{Game, GameInfo, ToGame, Transition},
@@ -84,7 +84,7 @@ impl RealmModel {
                 } else {
                     None
                 }
-            },
+            }
             RealmModel::Game(_) => Some(Msg::PlayerJoined(user_id)),
         }
     }
@@ -112,10 +112,14 @@ impl RealmModel {
             (RealmModel::Game(_), Msg::NewGameStarted(_, _)) => todo!(),
             (RealmModel::Lobby(l), Msg::PlayerJoined(_)) => (RealmModel::Lobby(l), realm.nothing()),
             (RealmModel::Lobby(l), Msg::UserAlreadyWaiting(user_id)) => {
-                let cmd = 
-                        realm.to_user(user_id, vec![ToFrontend::ToLobbyFrontend(ToFrontendLobby::WaitingForMorePlayers)]);
+                let cmd = realm.to_user(
+                    user_id,
+                    vec![ToFrontend::ToLobbyFrontend(
+                        ToFrontendLobby::WaitingForMorePlayers,
+                    )],
+                );
                 (RealmModel::Lobby(l), cmd)
-            },
+            }
             (RealmModel::Game(_), Msg::UserAlreadyWaiting(_)) => todo!(),
         }
     }
@@ -136,12 +140,18 @@ impl RealmModel {
 
             (RealmModel::Game(game), ToBackend::ForGame(to_game)) => {
                 let (updated_game, transitions) = game.update(to_game, &user_id);
-                let cmds = transitions
+                let mut cmds = transitions
                     .into_iter()
                     .map(|(user_id, transition)| {
                         realm.to_user(user_id, [ToFrontend::ToGameFrontend(transition)])
                     })
                     .collect::<Vec<Cmd>>();
+                if updated_game.is_over() {
+                    let game_ended = |realm_id: RealmId| {
+                        ToFrontend::ToGameFrontend(Transition::GameEnded(realm_id))
+                    };
+                    cmds.push(realm.close(game_ended));
+                }
                 (RealmModel::Game(updated_game), realm.batch(cmds))
             }
             (RealmModel::Lobby(lobby), ToBackend::ForGame(to_game)) => {
@@ -179,25 +189,24 @@ fn update_lobby_from_frontend(
             // realm.spawn(NewRealmHint::Game, Msg::GotNewRealm)
         ),
         ToLobby::WaitForGame(number_of_players) => {
-            let ppl_waiting = lobby
-                .waiting
-                .entry(number_of_players)
-                .or_insert(vec![]);
+            let ppl_waiting = lobby.waiting.entry(number_of_players).or_insert(vec![]);
             if number_of_players < 4 && !ppl_waiting.contains(&user_id) {
                 ppl_waiting.push(user_id);
-                if ppl_waiting.len() == number_of_players  {
+                if ppl_waiting.len() == number_of_players {
                     let players = ppl_waiting.clone();
                     ppl_waiting.clear();
-                    let cmd =
-                        realm.spawn(NewRealmHint::Game(players.clone()), |realm_id| {
-                            Msg::NewGameStarted(realm_id, players)
-                        });
+                    let cmd = realm.spawn(NewRealmHint::Game(players.clone()), |realm_id| {
+                        Msg::NewGameStarted(realm_id, players)
+                    });
                     return (lobby, cmd);
                 } else {
-                    let cmd =
-                        realm.to_user(user_id, vec![ToFrontend::ToLobbyFrontend(ToFrontendLobby::WaitingForMorePlayers)]);
+                    let cmd = realm.to_user(
+                        user_id,
+                        vec![ToFrontend::ToLobbyFrontend(
+                            ToFrontendLobby::WaitingForMorePlayers,
+                        )],
+                    );
                     return (lobby, cmd);
-
                 }
             }
             (lobby, realm.nothing())

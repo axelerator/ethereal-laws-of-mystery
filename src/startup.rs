@@ -37,7 +37,7 @@ pub enum CmdInternal {
     BroadcastToRealm(RealmId, Vec<ToFrontend>),
     Spawn(RealmId, RealmId, NewRealmHint, Msg),
     AddUserToRealm(RealmId, ToFrontend, UserId),
-    Close(RealmId),
+    Close(RealmId, ToFrontend),
 }
 
 impl From<CmdInternal> for Cmd {
@@ -132,6 +132,13 @@ impl RealmMembersStore {
             }
         }
         realm_ids
+    }
+
+    pub fn close_realm(&mut self, realm_id: &RealmId) -> HashSet<SessionId> {
+        let _ = self.users_by_realm.remove(realm_id);
+        let sessions = self.sessions_by_realm.remove(realm_id);
+
+        sessions.unwrap_or(HashSet::default())
     }
 }
 
@@ -274,7 +281,11 @@ async fn process_cmd(
 
             vec![]
         }
-        CmdInternal::Close(_) => todo!(),
+        CmdInternal::Close(realm_id, to_frontend) => {
+            let session_ids = realm_members.write().await.close_realm(&realm_id);
+            send_to_sessions(session_ids, vec![to_frontend], inboxes).await;
+            vec![]
+        }
     };
 
     if !stale_sessions.is_empty() {
@@ -478,8 +489,12 @@ impl Realm {
         CmdInternal::AddUserToRealm(self.id.clone(), to_frontend, user_id).into()
     }
 
-    pub fn close(&self) -> Cmd {
-        CmdInternal::Close(self.id.clone()).into()
+    pub fn close<F>(&self, realm_closed_msg: F) -> Cmd
+    where
+        F: FnOnce(RealmId) -> ToFrontend,
+    {
+        let to_frontend = realm_closed_msg(self.id.clone());
+        CmdInternal::Close(self.id.clone(), to_frontend).into()
     }
 }
 

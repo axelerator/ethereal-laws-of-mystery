@@ -7,11 +7,13 @@ import Hades exposing (CardContent(..), GameInfo, Location(..), Opponent)
 import Html exposing (Attribute, Html, div, node, p, text)
 import Html.Attributes exposing (class, id, style)
 import Html.Events exposing (onClick)
+import Http exposing (post)
 import Json.Decode exposing (bool)
 import List exposing (length, range)
 import Maybe.Extra exposing (values)
 import Pixels
 import Point2d exposing (toPixels)
+import PseudoRandom
 import Rectangle2d exposing (Rectangle2d)
 import String exposing (fromFloat)
 import Vector2d
@@ -55,8 +57,8 @@ type alias Model =
     }
 
 
-init_ : Vec -> GameInfo -> (CardsModel, CardId)
-init_ viewportSize { center, hand, opponents } =
+init_ : Vec -> GameInfo -> ( CardsModel, CardId )
+init_ viewportSize { center, hand, opponents, discardPile } =
     let
         centerCount =
             List.length center
@@ -106,19 +108,31 @@ init_ viewportSize { center, hand, opponents } =
             in
             ( crds ++ crds_, lastId_ )
 
-        (opponentCards, finalId) =
+        ( opponentCards, idAfterOps ) =
             List.foldr forOp ( [], centerCount + handCount ) <|
                 List.map2 (\i o -> ( i, o ))
                     (List.range 1 <| List.length opponents)
                     opponents
 
+        discardedCards =
+            List.indexedMap mkDiscarded discardPile
+
+        mkDiscarded i content =
+            { id = idAfterOps + i
+            , location = DiscardPile i
+            , content = content
+            }
+
+        finalId =
+            idAfterOps + List.length discardPile
+
         cards =
-            centerCards ++ handCards ++ opponentCards
+            centerCards ++ handCards ++ opponentCards ++ discardedCards
 
         visuals =
             updateAni viewportInfo cards []
     in
-    (CardsModel
+    ( CardsModel
         { cards = cards
         , visuals = visuals
         , viewportInfo = viewportInfo
@@ -276,6 +290,22 @@ deckAttrs (CardsModel { viewportInfo }) =
     interpolate (Settled viewportInfo.deckPos)
 
 
+discardPileAttrs : CardsModel -> Int -> List (Attribute msg)
+discardPileAttrs (CardsModel { viewportInfo }) n =
+    let
+        pos =
+            move (times (toFloat n) (vec 3 3)) viewportInfo.discardPilePos.pos
+
+        props =
+            { pos = pos
+            , degrees = 0
+            , flip = 180
+            , opacity = 1.0
+            }
+    in
+    Tuple.first <| cssTransforms props
+
+
 addCard : CardsModel -> CardId -> Card -> Location -> CardContent -> CardsModel
 addCard (CardsModel ({ cards, visuals, viewportInfo } as rest)) newId _ location content =
     let
@@ -299,6 +329,16 @@ addCard (CardsModel ({ cards, visuals, viewportInfo } as rest)) newId _ location
             | cards = withNewCard
             , visuals = withNewCardOnDeck
         }
+
+
+removeCards : List CardId -> CardsModel -> CardsModel
+removeCards cardIds ((CardsModel ({ cards, visuals, viewportInfo } as rest)) as model) =
+    let
+        cards_ =
+            List.filter (\c -> not (List.member c.id cardIds)) cards
+    in
+    CardsModel
+        { rest | cards = cards_, visuals = updateAni viewportInfo cards_ visuals }
 
 
 removeCard : CardId -> CardsModel -> ( Maybe ( Card, Point ), CardsModel )
@@ -522,6 +562,11 @@ cardMoveSpeed =
     2.0
 
 
+contentOf : CardsModel -> CardId -> Maybe CardContent
+contentOf (CardsModel { cards }) cardId =
+    Maybe.map .content <| List.head <| List.filter (\c -> c.id == cardId) cards
+
+
 revealContent : CardsModel -> CardId -> CardContent -> CardsModel
 revealContent (CardsModel ({ cards, visuals } as details)) cardId content =
     let
@@ -573,6 +618,16 @@ isInMyHand : Card -> Bool
 isInMyHand { location } =
     case location of
         MyHand _ ->
+            True
+
+        _ ->
+            False
+
+
+isOnDiscardPile : Card -> Bool
+isOnDiscardPile { location } =
+    case location of
+        DiscardPile _ ->
             True
 
         _ ->
@@ -636,6 +691,7 @@ myHandCards : List Card -> List Card
 myHandCards cards =
     List.filter isInMyHand cards
 
+
 isInOpponentsHand : OpponentId -> Card -> Bool
 isInOpponentsHand opId { location } =
     case location of
@@ -644,6 +700,7 @@ isInOpponentsHand opId { location } =
 
         _ ->
             False
+
 
 inOpponentsHandCards : OpponentId -> List Card -> List Card
 inOpponentsHandCards opponentId cards =
@@ -680,14 +737,25 @@ locationOf (CardsModel { cards }) cardId =
     Maybe.map .location <| List.head <| List.filter (\c -> c.id == cardId) cards
 
 
+discardPileWiggle : List Float
+discardPileWiggle =
+    PseudoRandom.floatSequence 100 234 ( 0, 10 )
+
+
 screenPos : ViewportInfo -> List Card -> Location -> Props
 screenPos viewportInfo cards loc =
     case loc of
         Deck ->
             viewportInfo.deckPos
 
-        DiscardPile ->
-            viewportInfo.discardPilePos
+        DiscardPile pos ->
+            let
+                default =
+                    viewportInfo.discardPilePos
+            in
+            { default
+                | degrees = Maybe.withDefault 0 <| List.head <| List.drop pos discardPileWiggle
+            }
 
         MyHand p ->
             let
@@ -710,72 +778,75 @@ screenPos viewportInfo cards loc =
             }
 
         TheirHand opponentId p ->
-          case opponentId of
-            1 ->
-              let
-                  handCardCount =
-                      List.length <| inOpponentsHandCards opponentId cards
+            case opponentId of
+                1 ->
+                    let
+                        handCardCount =
+                            List.length <| inOpponentsHandCards opponentId cards
 
-                  degreePerCard =
-                      maxSpread / toFloat handCardCount
+                        degreePerCard =
+                            maxSpread / toFloat handCardCount
 
-                  totalHeight =
-                      times (toFloat handCardCount) offsetPerCardV
+                        totalHeight =
+                            times (toFloat handCardCount) offsetPerCardV
 
-                  (_, viewportHeight) =
-                    Vector2d.toTuple Pixels.inPixels viewportInfo.size
+                        ( _, viewportHeight ) =
+                            Vector2d.toTuple Pixels.inPixels viewportInfo.size
 
+                        top =
+                            move (times -0.5 totalHeight) (point (viewportInfo.cardSize.width * -0.5) (viewportHeight * 0.5))
+                    in
+                    { pos = move (times (toFloat p) offsetPerCardV) top
+                    , opacity = 1.0
+                    , degrees = -90 + (startSpread + degreePerCard * toFloat p)
+                    , flip = 180
+                    }
 
-                  top =
-                      move (times -0.5 totalHeight) (point (viewportInfo.cardSize.width * -0.5) (viewportHeight * 0.5))
-              in
-              { pos = move (times (toFloat p) offsetPerCardV) top
-              , opacity = 1.0
-              , degrees = -90 + (startSpread + degreePerCard * toFloat p)
-              , flip = 180
-              }
-            2 ->
-              let
-                  handCardCount =
-                      List.length <| inOpponentsHandCards opponentId cards
+                2 ->
+                    let
+                        handCardCount =
+                            List.length <| inOpponentsHandCards opponentId cards
 
-                  degreePerCard =
-                      maxSpread / toFloat handCardCount
+                        degreePerCard =
+                            maxSpread / toFloat handCardCount
 
-                  totalWidth =
-                      times (toFloat handCardCount) offsetPerCard
-                  { x } =
-                      toPixels viewportInfo.handOrigin
+                        totalWidth =
+                            times (toFloat handCardCount) offsetPerCard
 
-                  left =
-                      move (times -0.5 totalWidth) (point x (viewportInfo.cardSize.height * -0.5))
-              in
-              { pos = move (times (toFloat p) offsetPerCard) left
-              , opacity = 1.0
-              , degrees = -startSpread - degreePerCard * toFloat p
-              , flip = 180
-              }
-            _ ->
-              let
-                  handCardCount =
-                      List.length <| myHandCards cards
+                        { x } =
+                            toPixels viewportInfo.handOrigin
 
-                  degreePerCard =
-                      maxSpread / toFloat handCardCount
+                        left =
+                            move (times -0.5 totalWidth) (point x (viewportInfo.cardSize.height * -0.5))
+                    in
+                    { pos = move (times (toFloat p) offsetPerCard) left
+                    , opacity = 1.0
+                    , degrees = -startSpread - degreePerCard * toFloat p
+                    , flip = 180
+                    }
 
-                  totalWidth =
-                      times (toFloat handCardCount) offsetPerCard
-                  { x } =
-                      toPixels viewportInfo.handOrigin
+                _ ->
+                    let
+                        handCardCount =
+                            List.length <| myHandCards cards
 
-                  left =
-                      move (times -0.5 totalWidth) (point x (viewportInfo.cardSize.height * -0.5))
-              in
-              { pos = move (times (toFloat p) offsetPerCard) left
-              , opacity = 1.0
-              , degrees = -startSpread - degreePerCard * toFloat p
-              , flip = 180
-              }
+                        degreePerCard =
+                            maxSpread / toFloat handCardCount
+
+                        totalWidth =
+                            times (toFloat handCardCount) offsetPerCard
+
+                        { x } =
+                            toPixels viewportInfo.handOrigin
+
+                        left =
+                            move (times -0.5 totalWidth) (point x (viewportInfo.cardSize.height * -0.5))
+                    in
+                    { pos = move (times (toFloat p) offsetPerCard) left
+                    , opacity = 1.0
+                    , degrees = -startSpread - degreePerCard * toFloat p
+                    , flip = 180
+                    }
 
         InFlight x y ->
             { pos = point x y
@@ -925,9 +996,10 @@ startSpread =
 
 offsetPerCard =
     vec 50 0
+
+
 offsetPerCardV =
     vec 0 50
-
 
 
 lastHandId : Card -> Int -> Int

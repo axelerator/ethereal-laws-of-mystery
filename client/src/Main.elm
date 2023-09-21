@@ -1,19 +1,16 @@
 port module Main exposing (main)
-import Hades exposing (toFrontendDecoder)
 
 import Browser
-import Hades exposing (ToFrontendEnvelope(..), toFrontendEnvelopeDecoder)
-import Time
-import Home
 import Game
+import Hades exposing (ToBackend(..), ToFrontend(..), ToFrontendEnvelope(..), toFrontendDecoder, toFrontendEnvelopeDecoder)
+import Home
 import Html exposing (Html, button, div, h1, input, text)
 import Html.Attributes exposing (value)
 import Html.Events exposing (onClick, onInput)
 import Json.Decode as Decode
-import WebAuthn
 import Task
-import Hades exposing (ToFrontend(..))
-import Hades exposing (ToBackend(..))
+import Time
+import WebAuthn
 
 
 port portOut : ( String, String ) -> Cmd msg
@@ -50,7 +47,7 @@ init _ =
             WebAuthn.initOnLogin { webauthn = portOut } "at"
     in
     ( OnLogin <| model
-    , Cmd.batch [Cmd.map ForWebauthn cmd, Cmd.map ForWebauthn cmd_]
+    , Cmd.batch [ Cmd.map ForWebauthn cmd, Cmd.map ForWebauthn cmd_ ]
     )
 
 
@@ -60,10 +57,10 @@ type Msg
     | ForGame Game.Msg
     | FromPort ( String, String )
 
-globalActions =
-  { webauthn = portOut
-  }
 
+globalActions =
+    { webauthn = portOut
+    }
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -81,7 +78,7 @@ update msg model =
             in
             case Decode.decodeString toFrontendEnvelopeDecoder eventData of
                 Ok envelope ->
-                  case Debug.log "Event:" envelope of
+                    case Debug.log "Event:" envelope of
                         Noop ->
                             noop
 
@@ -93,24 +90,26 @@ update msg model =
                         FromRealm toFrontend ->
                             case toFrontend of
                                 EnteredGame _ _ ->
-                                  noop
-                                ToGameFrontend forGame ->
-                                  let
-                                    ( model__, cmd_ ) =
-                                        Game.update globalActions (Game.fromBackend forGame) model_
+                                    noop
 
-                                    cmd =
-                                        Cmd.map ForGame cmd_
-                                  in
+                                ToGameFrontend forGame ->
+                                    let
+                                        ( model__, cmd_ ) =
+                                            Game.update globalActions (Game.fromBackend forGame) model_
+
+                                        cmd =
+                                            Cmd.map ForGame cmd_
+                                    in
                                     ( OnGame model__
                                     , cmd
                                     )
 
                                 ToLobbyFrontend forLobby ->
-                                  noop
+                                    noop
 
                 Err _ ->
                     noop
+
         ( FromPort ( "event", eventData ), OnHome model_ ) ->
             let
                 noop =
@@ -118,7 +117,7 @@ update msg model =
             in
             case Decode.decodeString toFrontendEnvelopeDecoder eventData of
                 Ok envelope ->
-                  case Debug.log "Event:" envelope of
+                    case Debug.log "Event:" envelope of
                         Noop ->
                             noop
 
@@ -130,24 +129,25 @@ update msg model =
                         FromRealm toFrontend ->
                             case toFrontend of
                                 EnteredGame realmId gameInfo ->
-                                  let
-                                      (model__, cmd_) = Game.init realmId gameInfo
-                                  in
-                                  
-                                  (OnGame model__
-                                  , Cmd.map ForGame cmd_
-                                  )
+                                    let
+                                        ( model__, cmd_ ) =
+                                            Game.init realmId gameInfo
+                                    in
+                                    ( OnGame model__
+                                    , Cmd.map ForGame cmd_
+                                    )
+
                                 ToGameFrontend forGame ->
-                                  noop
+                                    noop
 
                                 ToLobbyFrontend forLobby ->
-                                  let
-                                    ( model__, cmd_ ) =
-                                        Home.update globalActions (Home.fromBackend forLobby) model_
+                                    let
+                                        ( model__, cmd_ ) =
+                                            Home.update globalActions (Home.fromBackend forLobby) model_
 
-                                    cmd =
-                                        Cmd.map ForHome cmd_
-                                  in
+                                        cmd =
+                                            Cmd.map ForHome cmd_
+                                    in
                                     ( OnHome model__
                                     , cmd
                                     )
@@ -175,9 +175,15 @@ update msg model =
                 cmd =
                     Cmd.map ForGame cmd_
             in
-            ( OnGame model__
-            , cmd
-            )
+            if Game.returnToLobby msg_ then
+                ( OnHome Home.init
+                , Cmd.none
+                )
+
+            else
+                ( OnGame model__
+                , cmd
+                )
 
         ( ForWebauthn msg_, OnLogin model_ ) ->
             let
@@ -197,12 +203,15 @@ update msg model =
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    Sub.batch 
-      [ portIn FromPort
-      , case model of
-          OnGame model_ -> Sub.map ForGame <| Game.subscriptions model_
-          _ -> Sub.none
-      ]
+    Sub.batch
+        [ portIn FromPort
+        , case model of
+            OnGame model_ ->
+                Sub.map ForGame <| Game.subscriptions model_
+
+            _ ->
+                Sub.none
+        ]
 
 
 view : Model -> Html Msg
@@ -216,4 +225,3 @@ view model =
 
         OnGame model_ ->
             Html.map ForGame <| Game.view model_
-

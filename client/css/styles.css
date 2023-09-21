@@ -38,6 +38,15 @@ body {
   overflow: hidden;
 }
 
+.in-game-button {
+  background-image: url("/assets/images/table.png");
+  background-size: 320%;
+  background-position: 40% 20%;
+  border: 1px solid #332;
+  box-shadow: 1px 1px 1px 1px rgba(0, 0, 0, 0.4);
+  color: #333;
+}
+
 .card {
   position: absolute;
   background-color: transparent;
@@ -85,7 +94,6 @@ body {
   border-radius: var(--border-radius);
   z-index: 5;
 }
-
 
 .card .back {
   background-image: url("/assets/images/cardbg.jpg");

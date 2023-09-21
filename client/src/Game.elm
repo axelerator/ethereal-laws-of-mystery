@@ -1,6 +1,7 @@
-module Game exposing (Model, Msg, fromBackend, init, subscriptions, update, view)
+module Game exposing (Model, Msg, fromBackend, init, returnToLobby, subscriptions, update, view)
 
 import Angle exposing (turn)
+import Axis3d exposing (z)
 import Browser.Dom exposing (getViewport)
 import Browser.Events exposing (onResize)
 import Cards
@@ -15,25 +16,24 @@ import Cards
         , Vec
         , addCard
         , consolidateHandCards
+        , contentOf
         , deckAttrs
+        , discardPileAttrs
         , draggedOver
         , fold
         , idOf
         , idsOf
         , inlineCSS
-        , isInCenterRow
         , isInInflight
-        , isNumberCard
+        , isOnDiscardPile
         , lastHandId
         , locationOf
         , move
         , moveCardTo
         , numberCenterCards
         , operatorCenterCards
-        , point
-        , removeCard
+        , removeCards
         , revealContent
-        , swapCenterCards
         , updateViewport
         , vec
         )
@@ -55,12 +55,10 @@ import Hades
         , Transition(..)
         , toBackendEnvelopeEncoder
         )
-import Html exposing (Attribute, Html, button, div, p, text)
+import Html exposing (Attribute, Html, a, br, button, div, p, text)
 import Html.Attributes exposing (attribute, class, dropzone, id, style)
 import Html.Events exposing (on, onClick)
 import Http exposing (jsonBody)
-import Json.Decode
-import List exposing (isEmpty)
 import Maybe.Extra exposing (values)
 import Point2d exposing (fromPixels, toPixels)
 import PseudoRandom
@@ -92,9 +90,10 @@ type Highlight
 
 init : RealmId -> GameInfo -> ( Model, Cmd Msg )
 init realmId gameInfo =
-  let
-      (cards, cardsIdGen) = Cards.init_ (vec 500 500) gameInfo
-  in
+    let
+        ( cards, cardsIdGen ) =
+            Cards.init_ (vec 500 500) gameInfo
+    in
     ( { counter = 0
       , realmId = realmId
       , cardIdGen = cardsIdGen
@@ -165,6 +164,7 @@ type Msg
     | DragMsg (Draggable.Msg DragId)
     | GotViewPort Browser.Dom.Viewport
     | Resized Int Int
+    | ReturnToLobby
 
 
 updateFromRealm toFrontend model =
@@ -209,15 +209,22 @@ placeInFlightCard model targetLocation =
             case ( inFlightCard, cardOnTarget ) of
                 ( Just fromId, Just toId ) ->
                     let
+                        lastDiscardedPos = 
+                            List.length <| idsOf isOnDiscardPile model.cards
+
                         withoutDiscardedCenterCard =
-                            moveCardTo model.cards toId DiscardPile
+                            moveCardTo model.cards toId (DiscardPile (lastDiscardedPos + 1))
+
                     in
-                    moveCardTo withoutDiscardedCenterCard fromId targetLocation
+                     moveCardTo withoutDiscardedCenterCard fromId targetLocation
 
                 _ ->
-                    model.cards
+                     model.cards
+                    
     in
-    { model | cards = consolidateHandCards cards }
+    { model
+        | cards = consolidateHandCards cards
+    }
 
 
 removeHighlightFrom : List ( CardId, Highlight ) -> List ( CardId, Highlight )
@@ -247,9 +254,19 @@ highlightAsDropZone highlightedCards cardId =
     List.map replaceHighlight <| removeHighlightFrom highlightedCards
 
 
+returnToLobby : Msg -> Bool
+returnToLobby msg =
+    msg == ReturnToLobby
+
+
 update : { a | webauthn : b } -> Msg -> Model -> ( Model, Cmd Msg )
 update { webauthn } msg model =
     case msg of
+        ReturnToLobby ->
+            ( model
+            , Cmd.none
+            )
+
         GotViewPort { scene } ->
             ( { model | cards = updateViewport (vec scene.width scene.height) model.cards }
             , Cmd.none
@@ -299,6 +316,11 @@ update { webauthn } msg model =
                     ( { model
                         | turn = turn
                       }
+                    , Cmd.none
+                    )
+
+                GameEnded _ ->
+                    ( model
                     , Cmd.none
                     )
 
@@ -431,18 +453,18 @@ update { webauthn } msg model =
 
 theyPlayed : Model -> Location -> Location -> CardContent -> Model
 theyPlayed model from to content =
-    case (idOf from model.cards, idOf to model.cards) of
-        (Just fromId, Just toId) ->
+    case ( idOf from model.cards, idOf to model.cards ) of
+        ( Just fromId, Just toId ) ->
             let
-                withoutDiscardedCenterCard =
-                    moveCardTo model.cards toId DiscardPile
                 withRevealedCard =
-                    revealContent withoutDiscardedCenterCard fromId content
+                    revealContent model.cards fromId content
 
                 cards =
                     moveCardTo withRevealedCard fromId to
             in
-            { model | cards = cards }
+            { model
+                | cards = cards
+            }
 
         _ ->
             model
@@ -477,7 +499,6 @@ theyDraw model opponentId =
     { model
         | cardIdGen = model.cardIdGen + 1
         , cards = moveCardTo withNewCard newId (TheirHand opponentId nextHandPos)
-        , pileSize = model.pileSize - 1
     }
 
 
@@ -494,10 +515,21 @@ view model =
         wonDiv =
             case model.gameState of
                 GameOver True ->
-                    div [ class "wonLabel" ] [ div [ class "pyro" ] [ div [ class "before" ] [], div [ class "after" ] [] ], div [] [ text "You're the bomb!" ] ]
+                    div [ class "wonLabel" ]
+                        [ div [ class "pyro" ]
+                            [ div [ class "before" ] []
+                            , div [ class "after" ] []
+                            ]
+                        , div []
+                            [ text "You're the bomb!"
+                            , br [] []
+                            , button [ onClick ReturnToLobby, class "in-game-button" ] [ text "return to lobby" ]
+                            ]
+                        ]
 
                 GameOver False ->
                     div [ class "lostLabel" ] [ div [] [ text "Better luck next time" ] ]
+
                 _ ->
                     text ""
     in
@@ -593,13 +625,13 @@ cardView isDragging highlightedCards card ( aniAttrs, innerAttrs ) =
                     10
 
                 MyHand i ->
-                    100 - i
+                    200 - i
 
                 TheirHand _ i ->
-                    100 - i
+                    200 - i
 
-                DiscardPile ->
-                    1
+                DiscardPile i ->
+                    100 + i
 
                 InFlight _ _ ->
                     300
@@ -621,7 +653,7 @@ cardView isDragging highlightedCards card ( aniAttrs, innerAttrs ) =
                 TheirHand _ _ ->
                     "opponentHand"
 
-                DiscardPile ->
+                DiscardPile _ ->
                     "discardPile"
 
                 InFlight _ _ ->
@@ -648,6 +680,7 @@ deckCard =
     { id = -1, location = Deck, content = NumberCard 1 }
 
 
+
 deckCardAni : CardsModel -> CardAniAttrs Msg
 deckCardAni model =
     let
@@ -657,29 +690,32 @@ deckCardAni model =
     ( onClick Draw :: attrs, iattrs )
 
 
+stack : Int -> List (Attribute Msg) -> Html Msg
+stack size attrs =
+    let
+        wiggles =
+            PseudoRandom.floatSequence (size // 5) 234 ( 0, 10 )
+    in
+    div attrs <|
+        List.map2
+            (\i w -> div [ class "stack", attribute "style" <| "--offset: " ++ fromInt (i * 3) ++ "px; --wiggle: " ++ fromFloat w ++ "deg" ] [])
+            (List.reverse <| List.range 0 (size // 10))
+            wiggles
+
+
 deckView : Int -> CardsModel -> Html Msg
 deckView deckSize cards =
     let
-        wiggles =
-            PseudoRandom.floatSequence (deckSize // 5) 234 ( 0, 10 )
-
-        divs =
-            div attrs <|
-                List.map2
-                    (\i w -> div [ class "stack", attribute "style" <| "--offset: " ++ fromInt (i * 3) ++ "px; --wiggle: " ++ fromFloat w ++ "deg" ] [])
-                    (List.reverse <| List.range 0 (deckSize // 10))
-                    wiggles
-
         ( attrs, _ ) =
             deckAttrs cards
     in
     div [ class "deck-stack" ]
         [ cardView False [] deckCard (deckCardAni cards)
-        , divs
+        , stack deckSize attrs
         ]
 
 
 cardsView : Model -> List (Html Msg)
-cardsView { cards, highlightedCards, draggedCard, pileSize } =
-    deckView pileSize cards
+cardsView { cards, highlightedCards, draggedCard, pileSize} =
+        deckView pileSize cards
         :: Cards.viewAnis cards (cardView (Maybe.Extra.isJust draggedCard) highlightedCards)
