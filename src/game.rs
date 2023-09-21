@@ -93,6 +93,8 @@ fn deck() -> Vec<CardContent> {
     for number in 1..10 {
         cards.push(CardContent::NumberCard(number));
         cards.push(CardContent::NumberCard(number));
+        cards.push(CardContent::NumberCard(number));
+        cards.push(CardContent::NumberCard(number));
     }
 
     for _ in 0..4 {
