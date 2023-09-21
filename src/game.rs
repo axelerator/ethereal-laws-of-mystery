@@ -117,7 +117,7 @@ pub struct Game {
 }
 impl Game {
     pub fn new(user_ids: Vec<UserId>) -> Game {
-        let current_player = user_ids[0].clone();
+        let current_player = user_ids[0];
         let mut players : Vec<Player> = user_ids.into_iter().map(Player::new).collect();
         let mut pile = deck();
         let op = CardContent::OperatorCard(Operator::Plus);
@@ -173,7 +173,7 @@ impl Game {
         for other_player in self.players.iter() {
             if &other_player.id == user {
                 transitions.push((
-                    other_player.id.clone(),
+                    other_player.id,
                     Transition::IPlayed(target_location.clone()),
                 ));
             } else {
@@ -181,7 +181,7 @@ impl Game {
                 let from = Location::TheirHand(opponent, from_hand_pos);
                 let to = target_location.clone();
                 transitions.push((
-                    other_player.id.clone(),
+                    other_player.id,
                     Transition::TheyPlayed(from, to, played_card.clone()),
                 ));
             }
@@ -192,9 +192,9 @@ impl Game {
         );
         self.center[to_deck_pos] = played_card;
 
-        if let Some(game_over_transition) = self.is_game_over(&user) {
+        if let Some(game_over_transition) = self.is_game_over(user) {
             transitions.extend(game_over_transition);
-            self.winner = Some(user.clone());
+            self.winner = Some(*user);
         }
         (self, transitions)
     }
@@ -205,10 +205,10 @@ impl Game {
         for drawn_card in drawn_cards.iter() {
             for player in self.players.iter() {
                 if &player.id == user {
-                    transitions.push((user.clone(), Transition::IDraw(drawn_card.clone())));
+                    transitions.push((*user, Transition::IDraw(drawn_card.clone())));
                 } else {
                     transitions.push((
-                        player.id.clone(),
+                        player.id,
                         Transition::TheyDraw(self.player_relative_to(user, &player.id)),
                     ));
                 }
@@ -274,7 +274,7 @@ impl Game {
     }
 
     fn restart(mut self, user: &UserId) -> GameChanger {
-        self.voted_for_restart.insert(user.clone());
+        self.voted_for_restart.insert(*user);
         (self, vec![])
     }
 
@@ -283,9 +283,9 @@ impl Game {
             let mut transitions =  vec![];
             for player in self.players.iter() {
                 if &player.id == user_id {
-                    transitions.push((player.id.clone(), Transition::IWon));
+                    transitions.push((player.id, Transition::IWon));
                 } else {
-                    transitions.push((player.id.clone(), Transition::ILost));
+                    transitions.push((player.id, Transition::ILost));
                 }
             }
             Some(transitions)

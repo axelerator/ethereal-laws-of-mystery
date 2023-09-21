@@ -653,7 +653,7 @@ impl AppState {
         event_inboxes.insert(session_id.clone(), inbox);
         drop(event_inboxes);
 
-        let memberships = self.realm_members.read().await.memberships(&user_id);
+        let memberships = self.realm_members.read().await.memberships(user_id);
 
         for realm_id in memberships {
             self.enter_realm(session_id, user_id, &realm_id)

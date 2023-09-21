@@ -287,7 +287,7 @@ pub async fn finish_authentication(
     Ok(res)
 }
 
-pub const USER_INFO: &'static str = "USER_INFO";
+pub const USER_INFO: &str = "USER_INFO";
 
 async fn login(user_unique_id: Uuid, app_state: AppState, mut session: WritableSession) {
     session
