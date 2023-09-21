@@ -37,6 +37,13 @@ pub enum CmdInternal {
     BroadcastToRealm(RealmId, Vec<ToFrontend>),
     Spawn(RealmId, RealmId, NewRealmHint, Msg),
     AddUserToRealm(RealmId, ToFrontend, UserId),
+    Close(RealmId),
+}
+
+impl From<CmdInternal> for Cmd {
+    fn from(internal: CmdInternal) -> Self {
+        Cmd { internal }
+    }
 }
 
 type SessionsByUser = Arc<RwLock<HashMap<UserId, HashSet<SessionId>>>>;
@@ -267,6 +274,7 @@ async fn process_cmd(
 
             vec![]
         }
+        CmdInternal::Close(_) => todo!(),
     };
 
     if !stale_sessions.is_empty() {
@@ -418,18 +426,14 @@ pub struct Realm {
 
 impl Realm {
     pub fn nothing(&self) -> Cmd {
-        Cmd {
-            internal: CmdInternal::None,
-        }
+        CmdInternal::None.into()
     }
 
     pub fn batch<CS>(&self, cmds: CS) -> Cmd
     where
         CS: IntoIterator<Item = Cmd>,
     {
-        Cmd {
-            internal: CmdInternal::Cmds(cmds.into_iter().collect()),
-        }
+        CmdInternal::Cmds(cmds.into_iter().collect()).into()
     }
 
     pub fn broadcast<'a, I>(&self, msgs: I) -> Cmd
@@ -437,9 +441,7 @@ impl Realm {
         I: IntoIterator<Item = ToFrontend>,
     {
         let msgs: Vec<ToFrontend> = msgs.into_iter().collect();
-        Cmd {
-            internal: CmdInternal::BroadcastToRealm(self.id.clone(), msgs),
-        }
+        CmdInternal::BroadcastToRealm(self.id.clone(), msgs).into()
     }
 
     pub fn to_user<'a, I>(&self, user_id: UserId, msgs: I) -> Cmd
@@ -447,9 +449,7 @@ impl Realm {
         I: IntoIterator<Item = ToFrontend>,
     {
         let msgs: Vec<ToFrontend> = msgs.into_iter().collect();
-        Cmd {
-            internal: CmdInternal::SendToUser(user_id, msgs),
-        }
+        CmdInternal::SendToUser(user_id, msgs).into()
     }
 
     pub fn to_session<'a, I>(&self, session_id: SessionId, msgs: I) -> Cmd
@@ -457,32 +457,29 @@ impl Realm {
         I: IntoIterator<Item = ToFrontend>,
     {
         let msgs: Vec<ToFrontend> = msgs.into_iter().collect();
-        Cmd {
-            internal: CmdInternal::SendToSession(session_id, msgs),
-        }
+        CmdInternal::SendToSession(session_id, msgs).into()
     }
 
     pub fn spawn<F>(&self, hint: NewRealmHint, got_new_realm: F) -> Cmd
     where
         F: FnOnce(Realm) -> Msg,
     {
-        let realm_id = RealmId::Realm(Uuid::new_v4().to_string());
-        let new_realm = Realm {
-            id: realm_id.clone(),
-        };
+        let id = RealmId::Realm(Uuid::new_v4().to_string());
+        let new_realm = Realm { id: id.clone() };
         let to_backend = got_new_realm(new_realm);
-        Cmd {
-            internal: CmdInternal::Spawn(self.id.clone(), realm_id, hint, to_backend),
-        }
+        CmdInternal::Spawn(self.id.clone(), id, hint, to_backend).into()
     }
+
     pub fn add_user<F>(&self, user_id: UserId, entered_realm: F) -> Cmd
     where
         F: FnOnce(RealmId) -> ToFrontend,
     {
         let to_frontend = entered_realm(self.id.clone());
-        Cmd {
-            internal: CmdInternal::AddUserToRealm(self.id.clone(), to_frontend, user_id),
-        }
+        CmdInternal::AddUserToRealm(self.id.clone(), to_frontend, user_id).into()
+    }
+
+    pub fn close(&self) -> Cmd {
+        CmdInternal::Close(self.id.clone()).into()
     }
 }
 
@@ -659,7 +656,6 @@ impl AppState {
         let memberships = self.realm_members.read().await.memberships(&user_id);
 
         for realm_id in memberships {
-            debug!("New session is already in {:?}", realm_id);
             self.enter_realm(session_id, user_id, &realm_id)
                 .await
                 .unwrap();

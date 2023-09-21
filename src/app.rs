@@ -1,9 +1,8 @@
-use std::str::FromStr;
+use std::collections::HashMap;
 
+use tracing::error;
 use elm_rs::{Elm, ElmDecode, ElmEncode};
 use serde::{Deserialize, Serialize};
-use tracing::error;
-use webauthn_rs::prelude::Uuid;
 
 use crate::{
     game::{Game, GameInfo, ToGame, Transition},
@@ -15,6 +14,7 @@ use crate::{
 pub enum Msg {
     NewGameStarted(Realm, Vec<UserId>),
     PlayerJoined(UserId),
+    UserAlreadyWaiting(UserId),
 }
 
 #[derive(Elm, ElmEncode, Deserialize, Debug, Clone)]
@@ -32,8 +32,8 @@ pub enum ToFrontend {
 
 #[derive(Elm, ElmDecode, Serialize, Debug, Clone)]
 pub enum ToFrontendLobby {
-    UpdateCounter(i32),
     GameStart(RealmId),
+    WaitingForMorePlayers,
 }
 
 #[derive(Debug, Clone)]
@@ -48,32 +48,43 @@ pub enum RealmModel {
 
 #[derive(Elm, ElmEncode, Deserialize, Debug, Clone)]
 pub enum ToLobby {
-    Increment,
-    Decrement,
     StartGame,
+    WaitForGame(usize),
 }
 
+#[derive(Default)]
 pub struct Lobby {
-    counter: i32,
+    waiting: HashMap<usize, Vec<UserId>>,
+}
+
+impl Lobby {
+    pub fn user_already_waiting(&self, user_id: &UserId) -> bool {
+        for (_, user_ids) in self.waiting.iter() {
+            if user_ids.contains(user_id) {
+                return true;
+            }
+        }
+        false
+    }
 }
 
 impl RealmModel {
     pub fn new(hint: Option<NewRealmHint>) -> RealmModel {
         match hint {
-            None => RealmModel::Lobby(Lobby { counter: 0 }),
-            Some(NewRealmHint::Game(user_ids)) => {
-                let mut user_ids = user_ids.clone();
-                let op = Uuid::from_str("c75fc47f-9e90-4bf3-a18d-17850ed9f7c8").unwrap();
-                user_ids.push(op);
-
-                RealmModel::Game(Game::new(user_ids))
-            },
+            None => RealmModel::Lobby(Lobby::default()),
+            Some(NewRealmHint::Game(user_ids)) => RealmModel::Game(Game::new(user_ids)),
         }
     }
 
     pub fn joined(&self, user_id: UserId, _session_id: SessionId) -> Option<Msg> {
         match self {
-            RealmModel::Lobby(_) => None,
+            RealmModel::Lobby(lobby) => {
+                if lobby.user_already_waiting(&user_id) {
+                    Some(Msg::UserAlreadyWaiting(user_id))
+                } else {
+                    None
+                }
+            },
             RealmModel::Game(_) => Some(Msg::PlayerJoined(user_id)),
         }
     }
@@ -81,10 +92,6 @@ impl RealmModel {
     pub fn update(self, msg: Msg, realm: Realm) -> (RealmModel, Cmd) {
         match (self, msg) {
             (RealmModel::Lobby(lobby), Msg::NewGameStarted(new_realm, user_ids)) => {
-                let mut user_ids = user_ids.clone();
-                let op = Uuid::from_str("c75fc47f-9e90-4bf3-a18d-17850ed9f7c8").unwrap();
-                user_ids.push(op);
-
                 let game_start =
                     |realm_id| ToFrontend::ToLobbyFrontend(ToFrontendLobby::GameStart(realm_id));
                 let cmds = user_ids
@@ -104,6 +111,12 @@ impl RealmModel {
             }
             (RealmModel::Game(_), Msg::NewGameStarted(_, _)) => todo!(),
             (RealmModel::Lobby(l), Msg::PlayerJoined(_)) => (RealmModel::Lobby(l), realm.nothing()),
+            (RealmModel::Lobby(l), Msg::UserAlreadyWaiting(user_id)) => {
+                let cmd = 
+                        realm.to_user(user_id, vec![ToFrontend::ToLobbyFrontend(ToFrontendLobby::WaitingForMorePlayers)]);
+                (RealmModel::Lobby(l), cmd)
+            },
+            (RealmModel::Game(_), Msg::UserAlreadyWaiting(_)) => todo!(),
         }
     }
 
@@ -144,7 +157,7 @@ impl RealmModel {
 }
 
 fn update_lobby_from_frontend(
-    lobby: Lobby,
+    mut lobby: Lobby,
     msg: ToLobby,
     realm: Realm,
     user_id: UserId,
@@ -156,31 +169,38 @@ fn update_lobby_from_frontend(
             realm.spawn(NewRealmHint::Game(vec![user_id]), |realm_id| {
                 Msg::NewGameStarted(realm_id, vec![user_id])
             }),
+            // You can also send msgs to individual sessions (browser windows/tabs)
+            // realm.to_session(_session_id, [ToFrontend::UpdateCounter(counter)]),
+            // Or to all sessions of a particular user
+            // realm.to_user(_user_id, [ToFrontend::UpdateCounter(counter)]),
+            // Or to everyone in the realm
+            // realm.broadcast([ToFrontend::...
+            // Or create an entire new realm
+            // realm.spawn(NewRealmHint::Game, Msg::GotNewRealm)
         ),
-        ToLobby::Increment => {
-            let counter = lobby.counter + 1;
-            (
-                Lobby { counter },
-                // broadcast sends the message to everyone **in the realm**
-                realm.broadcast([ToFrontend::ToLobbyFrontend(ToFrontendLobby::UpdateCounter(
-                    counter,
-                ))]),
-                // You can also send msgs to individual sessions (browser windows/tabs)
-                // realm.to_session(_session_id, [ToFrontend::UpdateCounter(counter)]),
-                // Or to all sessions of a particular user
-                // realm.to_user(_user_id, [ToFrontend::UpdateCounter(counter)]),
-                // Or create an entire new realm
-                // realm.spawn(NewRealmHint::Game, Msg::GotNewRealm)
-            )
-        }
-        ToLobby::Decrement => {
-            let counter = lobby.counter - 1;
-            (
-                Lobby { counter },
-                realm.broadcast([ToFrontend::ToLobbyFrontend(ToFrontendLobby::UpdateCounter(
-                    counter,
-                ))]),
-            )
+        ToLobby::WaitForGame(number_of_players) => {
+            let ppl_waiting = lobby
+                .waiting
+                .entry(number_of_players)
+                .or_insert(vec![]);
+            if number_of_players < 4 && !ppl_waiting.contains(&user_id) {
+                ppl_waiting.push(user_id);
+                if ppl_waiting.len() == number_of_players  {
+                    let players = ppl_waiting.clone();
+                    ppl_waiting.clear();
+                    let cmd =
+                        realm.spawn(NewRealmHint::Game(players.clone()), |realm_id| {
+                            Msg::NewGameStarted(realm_id, players)
+                        });
+                    return (lobby, cmd);
+                } else {
+                    let cmd =
+                        realm.to_user(user_id, vec![ToFrontend::ToLobbyFrontend(ToFrontendLobby::WaitingForMorePlayers)]);
+                    return (lobby, cmd);
+
+                }
+            }
+            (lobby, realm.nothing())
         }
     }
 }

@@ -1,16 +1,24 @@
 module Home exposing (Model, Msg, fromBackend, init, update, view)
 
-import Hades exposing (RealmId(..), ToBackend(..), ToBackendEnvelope(..), ToFrontend(..), ToFrontendLobby(..), ToLobby(..), Transition(..), toBackendEnvelopeEncoder)
-import Html exposing (br, button, div, text)
-import Html.Attributes exposing (class)
+import Hades
+    exposing
+        ( RealmId(..)
+        , ToBackend(..)
+        , ToBackendEnvelope(..)
+        , ToFrontend(..)
+        , ToFrontendLobby(..)
+        , ToLobby(..)
+        , Transition(..)
+        , toBackendEnvelopeEncoder
+        )
+import Html exposing (button, div, text)
 import Html.Events exposing (onClick)
 import Http exposing (jsonBody)
-import Json.Encode as Encode
 import WebAuthn exposing (Msg)
-import Animation
+
 
 type alias Model =
-    { counter : Int }
+    { waitingForMorePlayers : Bool }
 
 
 send : ToLobby -> Cmd Msg
@@ -36,10 +44,11 @@ type Msg
     = GotSendResponse (Result Http.Error ())
     | FromBackend ToFrontendLobby
     | Go
+    | MultiGo Int
 
 
 init =
-    { counter = 0 }
+    { waitingForMorePlayers = False }
 
 
 updateFromRealm toFrontend model =
@@ -50,8 +59,8 @@ update { webauthn } msg model =
     case msg of
         FromBackend toFrontend ->
             case toFrontend of
-                UpdateCounter i ->
-                    ( { model | counter = i }
+                WaitingForMorePlayers ->
+                    ( { model | waitingForMorePlayers = True }
                     , Cmd.none
                     )
 
@@ -59,7 +68,6 @@ update { webauthn } msg model =
                     ( model
                     , sendToBackend <| EnterRealm realmId
                     )
-
 
         GotSendResponse result ->
             ( model, Cmd.none )
@@ -69,7 +77,17 @@ update { webauthn } msg model =
             , send StartGame
             )
 
+        MultiGo numberOfPlayers  ->
+            ( model
+            , send <| WaitForGame numberOfPlayers
+            )
+
+
 view model =
+  if model.waitingForMorePlayers then
+    div [] [text "Waiting for more players"]
+  else
     div []
         [ button [ onClick Go ] [ text "Single Player" ]
+        , button [ onClick (MultiGo 2) ] [ text "2 Player game" ]
         ]

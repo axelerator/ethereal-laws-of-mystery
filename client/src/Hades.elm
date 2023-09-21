@@ -68,20 +68,17 @@ toBackendEncoder enum =
             Json.Encode.object [ ( "ForGame", toGameEncoder inner ) ]
 
 type ToLobby
-    = Increment
-    | Decrement
-    | StartGame
+    = StartGame
+    | WaitForGame (Int)
 
 
 toLobbyEncoder : ToLobby -> Json.Encode.Value
 toLobbyEncoder enum =
     case enum of
-        Increment ->
-            Json.Encode.string "Increment"
-        Decrement ->
-            Json.Encode.string "Decrement"
         StartGame ->
             Json.Encode.string "StartGame"
+        WaitForGame inner ->
+            Json.Encode.object [ ( "WaitForGame", Json.Encode.int inner ) ]
 
 type ToGame
     = DrawFromPile
@@ -190,15 +187,23 @@ toFrontendDecoder =
         ]
 
 type ToFrontendLobby
-    = UpdateCounter (Int)
-    | GameStart (RealmId)
+    = GameStart (RealmId)
+    | WaitingForMorePlayers
 
 
 toFrontendLobbyDecoder : Json.Decode.Decoder ToFrontendLobby
 toFrontendLobbyDecoder = 
     Json.Decode.oneOf
-        [ Json.Decode.map UpdateCounter (Json.Decode.field "UpdateCounter" (Json.Decode.int))
-        , Json.Decode.map GameStart (Json.Decode.field "GameStart" (realmIdDecoder))
+        [ Json.Decode.map GameStart (Json.Decode.field "GameStart" (realmIdDecoder))
+        , Json.Decode.string
+            |> Json.Decode.andThen
+                (\x ->
+                    case x of
+                        "WaitingForMorePlayers" ->
+                            Json.Decode.succeed WaitingForMorePlayers
+                        unexpected ->
+                            Json.Decode.fail <| "Unexpected variant " ++ unexpected
+                )
         ]
 
 type Transition
