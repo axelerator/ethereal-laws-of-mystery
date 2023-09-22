@@ -21,6 +21,53 @@ body {
   align-items: center;
   -webkit-backdrop-filter: blur(3px);
 }
+.flash {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  font-family: 'Tangerine', cursive;
+  font-size: 3em;
+  font-weight: bold;
+  text-shadow: 15px 15px 5px #332311, 1px 1px 0px #333, 2px 2px 0px #999;
+  overflow: hidden;
+  z-index: 500;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.flash span {
+  display: inline-block;
+  transform: translateY(-120px);
+  opacity: 0.0;
+  animation-iteration-count: 1;
+  /*animation: move var(--delay) ease-out ;*/
+
+}
+@keyframes move {
+  from {
+    transform: translateY(0);
+    opacity: 1.0;
+  }
+
+  50% {
+    transform: translateZ(0);
+    opacity: 1.0;
+  }
+}
+
+@keyframes fadeOut2 {
+	0% { opacity: 1.0; transform: translate(0px) }
+	100% { opacity: 0.0; transform: translate(-80px)  }
+}
+@keyframes fadeOut {
+	0% { transform: translate(0,0); }
+	99% { transform: translate(0, -80px);  }
+}
+
+
 
 .wonLabel > div {
     text-shadow: 1px 1px 2px #E52, 0 0 1em blue, 0 0 0.2em #3AC;
@@ -158,6 +205,14 @@ body {
 .card.potentialdrop {
   box-shadow: 0px 0px 12px 5px rgba(50, 75, 125, 1.0);
 }
+
+.turn-0.cards:not(.game-over) .player-0,
+.turn-1.cards:not(.game-over) .player-1,
+.turn-2.cards:not(.game-over) .player-2,
+.turn-3.cards:not(.game-over) .player-3 {
+  box-shadow: 0px 0px 12px 5px rgba(25, 222, 125, 1.0);
+}
+
 
 /* credit: https://jsfiddle.net/elin/7m3bL/ */
 .pyro > .before, .pyro > .after {

@@ -4,6 +4,7 @@ use crate::{hades::RealmId, users::UserId};
 use elm_rs::{Elm, ElmDecode, ElmEncode};
 use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
+use tracing::{debug, error};
 
 #[derive(Elm, ElmDecode, Serialize, Debug, Clone)]
 pub struct GameInfo {
@@ -52,16 +53,16 @@ pub enum Location {
 #[derive(Elm, ElmDecode, Serialize, Debug, Clone)]
 pub enum Transition {
     IDraw(CardContent),
-    TheyDraw(RelativeOpponent),
+    TheyDraw(RelativeOpponent, RelativeOpponent),
     IPlayed(Location),
-    TheyPlayed(Location, Location, CardContent),
+    TheyPlayed(Location, Location, CardContent, RelativeOpponent),
     IWon,
     ILost,
     TurnChanged(RelativeOpponent),
     GameEnded(RealmId),
 }
 
-type RelativeOpponent = usize;
+pub type RelativeOpponent = usize;
 
 pub struct Player {
     id: UserId,
@@ -83,7 +84,7 @@ pub enum Operator {
 
 #[derive(Elm, ElmDecode, Serialize, Debug, Clone)]
 pub enum CardContent {
-    NumberCard(u8),
+    NumberCard(i8),
     OperatorCard(Operator),
     SwapOperators,
 }
@@ -173,6 +174,10 @@ impl Game {
     }
 
     fn play(mut self, user: &UserId, from_hand_pos: usize, to_deck_pos: usize) -> GameChanger {
+        if user != &self.current_player {
+            error!("It's not this players turn");
+            return (self, vec![]);
+        }
         let player = self
             .players
             .iter_mut()
@@ -182,6 +187,8 @@ impl Game {
         let played_card = player.hand.remove(from_hand_pos);
 
         let target_location = Location::CenterRow(to_deck_pos);
+        let next_player_id = self.proceed_to_next_player();
+
         let mut transitions = vec![];
         for other_player in self.players.iter() {
             if &other_player.id == user {
@@ -195,7 +202,12 @@ impl Game {
                 let to = target_location.clone();
                 transitions.push((
                     other_player.id,
-                    Transition::TheyPlayed(from, to, played_card.clone()),
+                    Transition::TheyPlayed(
+                        from,
+                        to,
+                        played_card.clone(),
+                        self.player_relative_to(&other_player.id, &next_player_id),
+                    ),
                 ));
             }
         }
@@ -214,8 +226,13 @@ impl Game {
     }
 
     fn draw(mut self, user: &UserId, n: usize) -> GameChanger {
+        if user != &self.current_player {
+            error!("It's not this players turn");
+            return (self, vec![]);
+        }
         let drawn_cards: Vec<CardContent> = self.pile.drain(0..n).collect();
         let mut transitions = vec![];
+        let next_player_id = self.proceed_to_next_player();
         for drawn_card in drawn_cards.iter() {
             for player in self.players.iter() {
                 if &player.id == user {
@@ -223,7 +240,10 @@ impl Game {
                 } else {
                     transitions.push((
                         player.id,
-                        Transition::TheyDraw(self.player_relative_to(user, &player.id)),
+                        Transition::TheyDraw(
+                            self.player_relative_to(user, &player.id),
+                            self.player_relative_to(user, &next_player_id),
+                        ),
                     ));
                 }
             }
@@ -236,6 +256,23 @@ impl Game {
         player.hand.extend(drawn_cards);
 
         (self, transitions)
+    }
+
+    fn proceed_to_next_player(&mut self) -> UserId {
+        let my_pos = self
+            .players
+            .iter()
+            .position(|p| p.id == self.current_player)
+            .unwrap();
+        let next_op_pos = if my_pos == self.players.len() - 1 {
+            0
+        } else {
+            my_pos + 1
+        };
+        let next_player_id = self.players[next_op_pos].id;
+        self.current_player = next_player_id;
+        debug!("It's now {} turn", self.current_player);
+        next_player_id
     }
 
     pub fn game_info(&self, player_id: UserId) -> GameInfo {
@@ -334,7 +371,7 @@ impl Game {
         actual == expected
     }
 
-    fn get_val_at(&self, pos: usize) -> u8 {
+    fn get_val_at(&self, pos: usize) -> i8 {
         match self.center[pos] {
             CardContent::SwapOperators => panic!(),
             CardContent::OperatorCard(_) => panic!(),

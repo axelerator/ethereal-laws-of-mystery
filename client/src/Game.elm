@@ -55,15 +55,16 @@ import Hades
         , Transition(..)
         , toBackendEnvelopeEncoder
         )
-import Html exposing (Attribute, Html, a, br, button, div, p, text)
+import Html exposing (Attribute, Html, a, br, button, div, p, span, text)
 import Html.Attributes exposing (attribute, class, dropzone, id, style)
 import Html.Events exposing (on, onClick)
 import Http exposing (jsonBody)
-import Maybe.Extra exposing (values)
+import Maybe.Extra exposing (next, values)
 import Point2d exposing (fromPixels, toPixels)
 import PseudoRandom
 import String exposing (dropLeft, fromFloat, fromInt)
 import Task
+import Time
 import WebAuthn exposing (Msg)
 
 
@@ -78,9 +79,20 @@ type alias Model =
     , viewportSize : Vec
     , gameState : GameState
     , opponents : List Opponent
-    , turn : Int
+    , turn : RelativeOpponent
     , pileSize : Int
+    , fadingMsg : Maybe ( String, Float )
     }
+
+
+
+{-
+   0 = My Turn
+-}
+
+
+type alias RelativeOpponent =
+    Int
 
 
 type Highlight
@@ -106,6 +118,7 @@ init realmId gameInfo =
       , gameState = gameInfo.gameState
       , opponents = gameInfo.opponents
       , turn = gameInfo.turn
+      , fadingMsg = Nothing
       }
     , Task.perform GotViewPort getViewport
     )
@@ -113,10 +126,20 @@ init realmId gameInfo =
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    Sub.batch
+    let
+        msgSub =
+            case model.fadingMsg of
+                Just ( msg, timeLeft ) ->
+                    Time.every timeLeft FadeMsg
+
+                Nothing ->
+                    Sub.none
+    in
+    Sub.batch <|
         [ Cards.subscriptions_ model.cards GotFrame
         , Draggable.subscriptions DragMsg model.drag
         , onResize Resized
+        , msgSub
         ]
 
 
@@ -165,6 +188,7 @@ type Msg
     | GotViewPort Browser.Dom.Viewport
     | Resized Int Int
     | ReturnToLobby
+    | FadeMsg Time.Posix
 
 
 updateFromRealm toFrontend model =
@@ -193,6 +217,7 @@ drawFromDeck model content =
         | cardIdGen = model.cardIdGen + 1
         , cards = moveCardTo withNewCard newId (MyHand nextHandPos)
         , pileSize = model.pileSize - 1
+        , turn = 1
     }
 
 
@@ -209,21 +234,20 @@ placeInFlightCard model targetLocation =
             case ( inFlightCard, cardOnTarget ) of
                 ( Just fromId, Just toId ) ->
                     let
-                        lastDiscardedPos = 
+                        lastDiscardedPos =
                             List.length <| idsOf isOnDiscardPile model.cards
 
                         withoutDiscardedCenterCard =
                             moveCardTo model.cards toId (DiscardPile (lastDiscardedPos + 1))
-
                     in
-                     moveCardTo withoutDiscardedCenterCard fromId targetLocation
+                    moveCardTo withoutDiscardedCenterCard fromId targetLocation
 
                 _ ->
-                     model.cards
-                    
+                    model.cards
     in
     { model
         | cards = consolidateHandCards cards
+        , turn = 1
     }
 
 
@@ -292,8 +316,8 @@ update { webauthn } msg model =
                     , Cmd.none
                     )
 
-                TheyDraw opponentId ->
-                    ( theyDraw model opponentId
+                TheyDraw opponentId nextPlayer ->
+                    ( theyDraw model opponentId nextPlayer
                     , Cmd.none
                     )
 
@@ -307,8 +331,8 @@ update { webauthn } msg model =
                     , Cmd.none
                     )
 
-                TheyPlayed from to content ->
-                    ( theyPlayed model from to content
+                TheyPlayed from to content nextPlayer ->
+                    ( theyPlayed model from to content nextPlayer
                     , Cmd.none
                     )
 
@@ -328,9 +352,14 @@ update { webauthn } msg model =
             ( model, Cmd.none )
 
         Draw ->
-            case model.gameState of
-                Running ->
+            case ( model.gameState, model.turn ) of
+                ( Running, 0 ) ->
                     ( model, send model.realmId DrawFromPile )
+
+                ( Running, _ ) ->
+                    ( { model | fadingMsg = Just ( "It's not your turn yet!", 128000 ) }
+                    , Cmd.none
+                    )
 
                 _ ->
                     ( model, Cmd.none )
@@ -346,8 +375,8 @@ update { webauthn } msg model =
                     Cards.removeCard cardId model.cards
 
                 highlightedCards =
-                    case card of
-                        Just ( c, _ ) ->
+                    case ( card, model.turn ) of
+                        ( Just ( c, _ ), 0 ) ->
                             case c.content of
                                 NumberCard _ ->
                                     idsOf numberCenterCards cards_
@@ -358,7 +387,7 @@ update { webauthn } msg model =
                                 SwapOperators ->
                                     idsOf operatorCenterCards cards_
 
-                        Nothing ->
+                        _ ->
                             []
             in
             case ( card, model.gameState ) of
@@ -450,9 +479,14 @@ update { webauthn } msg model =
         DragMsg dragMsg ->
             Draggable.update dragConfig dragMsg model
 
+        FadeMsg _ ->
+            ( { model | fadingMsg = Nothing }
+            , Cmd.none
+            )
 
-theyPlayed : Model -> Location -> Location -> CardContent -> Model
-theyPlayed model from to content =
+
+theyPlayed : Model -> Location -> Location -> CardContent -> RelativeOpponent -> Model
+theyPlayed model from to content nextPlayer =
     case ( idOf from model.cards, idOf to model.cards ) of
         ( Just fromId, Just toId ) ->
             let
@@ -464,14 +498,15 @@ theyPlayed model from to content =
             in
             { model
                 | cards = cards
+                , turn = nextPlayer
             }
 
         _ ->
             model
 
 
-theyDraw : Model -> OpponentId -> Model
-theyDraw model opponentId =
+theyDraw : Model -> OpponentId -> RelativeOpponent -> Model
+theyDraw model opponentId nextPlayer =
     let
         newId =
             model.cardIdGen
@@ -499,6 +534,7 @@ theyDraw model opponentId =
     { model
         | cardIdGen = model.cardIdGen + 1
         , cards = moveCardTo withNewCard newId (TheirHand opponentId nextHandPos)
+        , turn = nextPlayer
     }
 
 
@@ -532,13 +568,48 @@ view model =
 
                 _ ->
                     text ""
+
+        turnCSS =
+            "turn-" ++ fromInt model.turn
     in
     div []
         [ inlineCSS model.cards
         , wonDiv
-        , div [ class <| "cards " ++ wonCSS ]
+        , fadeMsgView model.fadingMsg
+        , div [ class <| turnCSS ++ " cards " ++ wonCSS ]
             (cardsView model ++ draggedCardView model.draggedCard)
         ]
+
+
+fadeMsgView : Maybe ( String, Float ) -> Html Msg
+fadeMsgView mb =
+    case mb of
+        Just ( msg, _ ) ->
+            let
+                chars =
+                    String.toList msg
+
+                rnd =
+                    PseudoRandom.floatSequence (List.length chars) 24 ( 2, 5 )
+            in
+            div [ class "flash" ]
+                [ div [] <|
+                    List.indexedMap
+                        (\i c ->
+                            span
+                                [ attribute "style" <|
+                                    "--delay:"
+                                        ++ (fromFloat <| Maybe.withDefault 0 <| List.head <| List.drop i rnd)
+                                        ++ "s"
+                                ]
+                                [ text <| String.fromList [ c ] ]
+                        )
+                    <|
+                        String.toList msg
+                ]
+
+        Nothing ->
+            text ""
 
 
 draggedCardView : Maybe ( Cards.Card, Point, Int ) -> List (Html Msg)
@@ -648,10 +719,10 @@ cardView isDragging highlightedCards card ( aniAttrs, innerAttrs ) =
                     "deck"
 
                 MyHand i ->
-                    "hand"
+                    "hand player-0"
 
-                TheirHand _ _ ->
-                    "opponentHand"
+                TheirHand op _ ->
+                    "opponentHand player-" ++ fromInt op
 
                 DiscardPile _ ->
                     "discardPile"
@@ -680,7 +751,6 @@ deckCard =
     { id = -1, location = Deck, content = NumberCard 1 }
 
 
-
 deckCardAni : CardsModel -> CardAniAttrs Msg
 deckCardAni model =
     let
@@ -698,7 +768,11 @@ stack size attrs =
     in
     div attrs <|
         List.map2
-            (\i w -> div [ class "stack", attribute "style" <| "--offset: " ++ fromInt (i * 3) ++ "px; --wiggle: " ++ fromFloat w ++ "deg" ] [])
+            (\i w ->
+                div
+                    [ class "stack", attribute "style" <| "--offset: " ++ fromInt (i * 3) ++ "px; --wiggle: " ++ fromFloat w ++ "deg" ]
+                    []
+            )
             (List.reverse <| List.range 0 (size // 10))
             wiggles
 
@@ -716,6 +790,6 @@ deckView deckSize cards =
 
 
 cardsView : Model -> List (Html Msg)
-cardsView { cards, highlightedCards, draggedCard, pileSize} =
-        deckView pileSize cards
+cardsView { cards, highlightedCards, draggedCard, pileSize } =
+    deckView pileSize cards
         :: Cards.viewAnis cards (cardView (Maybe.Extra.isJust draggedCard) highlightedCards)
