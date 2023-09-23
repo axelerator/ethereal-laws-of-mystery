@@ -65,90 +65,6 @@ empty viewportSize =
         }
 
 
-init_ : Vec -> GameInfo -> ( CardsModel, CardId )
-init_ viewportSize { center, hand, opponents, discardPile } =
-    let
-        centerCount =
-            List.length center
-
-        mkCard : Int -> CardContent -> Card
-        mkCard i content =
-            { id = i
-            , location = CenterRow i
-            , content = content
-            }
-
-        centerCards =
-            List.indexedMap mkCard center
-
-        mkHandCard i content =
-            { id = i + centerCount
-            , location = MyHand i
-            , content = content
-            }
-
-        handCards =
-            List.indexedMap mkHandCard hand
-
-        handCount =
-            List.length hand
-
-        viewportInfo =
-            viewportInfoFor viewportSize
-
-        mkOpponentCard opId handPos cardId =
-            { id = cardId
-            , location = TheirHand opId handPos
-            , content = NumberCard 1
-            }
-
-        mkOpponentCards : OpponentId -> Int -> Int -> ( List Card, CardId )
-        mkOpponentCards opId lastId numberOfCards =
-            ( List.indexedMap (mkOpponentCard opId) <| List.range lastId (lastId + numberOfCards - 1)
-            , lastId + numberOfCards
-            )
-
-        forOp : ( OpponentId, Opponent ) -> ( List Card, CardId ) -> ( List Card, CardId )
-        forOp ( opId, opponent ) ( crds, lastId ) =
-            let
-                ( crds_, lastId_ ) =
-                    mkOpponentCards opId lastId opponent.handSize
-            in
-            ( crds ++ crds_, lastId_ )
-
-        ( opponentCards, idAfterOps ) =
-            List.foldr forOp ( [], centerCount + handCount ) <|
-                List.map2 (\i o -> ( i, o ))
-                    (List.range 1 <| List.length opponents)
-                    opponents
-
-        discardedCards =
-            List.indexedMap mkDiscarded discardPile
-
-        mkDiscarded i content =
-            { id = idAfterOps + i
-            , location = DiscardPile i
-            , content = content
-            }
-
-        finalId =
-            idAfterOps + List.length discardPile
-
-        cards =
-            centerCards ++ handCards ++ opponentCards ++ discardedCards
-
-        visuals =
-            updateAni viewportInfo cards []
-    in
-    ( CardsModel
-        { cards = cards
-        , visuals = visuals
-        , viewportInfo = viewportInfo
-        , cardIdGen = finalId + 1
-        }
-    , finalId + 1
-    )
-
 
 subscriptions_ : CardsModel -> (Float -> msg) -> Sub msg
 subscriptions_ (CardsModel { visuals }) gotFrame_ =
@@ -320,13 +236,20 @@ addCards newCards model =
     let
         addCard__ : ( Location, CardContent ) -> CardsModel -> CardsModel
         addCard__ c m =
-            addCard_ c m |> Tuple.first
+            addCardNoAni c m |> Tuple.first
     in
     List.foldr addCard__ model newCards
 
 
-addCard_ : ( Location, CardContent ) -> CardsModel -> ( CardsModel, CardId )
-addCard_ ( location, content ) (CardsModel ({ cards, cardIdGen } as rest)) =
+addCard_ : Location -> CardContent -> CardsModel -> ( CardsModel, CardId )
+addCard_ location content  model =
+  let
+    (model_, cardId) = addCardNoAni (location, content) model
+  in
+    (updateAni_ model_, cardId)
+
+addCardNoAni : ( Location, CardContent ) -> CardsModel -> ( CardsModel, CardId )
+addCardNoAni ( location, content ) (CardsModel ({ cards, cardIdGen } as rest)) =
     let
         newCard =
             { id = cardIdGen
@@ -341,31 +264,6 @@ addCard_ ( location, content ) (CardsModel ({ cards, cardIdGen } as rest)) =
         { rest | cards = withNewCard, cardIdGen = cardIdGen + 1 }
     , cardIdGen
     )
-
-
-addCard : CardsModel -> CardId -> Card -> Location -> CardContent -> CardsModel
-addCard (CardsModel ({ cards, visuals, viewportInfo } as rest)) newId _ location content =
-    let
-        newCard =
-            { id = newId
-            , location = location
-            , content = content
-            }
-
-        withNewCard =
-            newCard :: cards
-
-        visualsWithoutPriorAnis =
-            List.filter (\( c, _ ) -> c.id /= newId) visuals
-
-        withNewCardOnDeck =
-            updateAni viewportInfo withNewCard visualsWithoutPriorAnis
-    in
-    CardsModel
-        { rest
-            | cards = withNewCard
-            , visuals = withNewCardOnDeck
-        }
 
 
 removeCard : CardId -> CardsModel -> ( Maybe ( Card, Point ), CardsModel )
@@ -466,6 +364,26 @@ type alias Props =
 
 type alias Visuals =
     List ( Card, Animating )
+
+updateAni_ : CardsModel -> CardsModel
+updateAni_ (CardsModel details) =
+    let
+        updatedExisting =
+            List.map (updateAniFor details.viewportInfo details.cards) details.visuals
+
+        newCards =
+            findNew details.cards details.visuals
+
+        newPos card =
+            ( card, Settled <| screenPos details.viewportInfo details.cards card.location )
+
+        newAnis =
+            List.map newPos newCards
+        visuals = 
+          List.filter (not << isVanished) <| updatedExisting ++ newAnis
+    in
+      CardsModel { details | visuals = visuals }
+
 
 
 updateAni : ViewportInfo -> List Card -> Visuals -> Visuals

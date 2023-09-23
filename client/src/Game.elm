@@ -1,7 +1,6 @@
 module Game exposing (Model, Msg, fromBackend, init, returnToLobby, subscriptions, update, view)
 
 import Angle exposing (turn)
-import Axis3d exposing (z)
 import Browser.Dom exposing (getViewport)
 import Browser.Events exposing (onResize)
 import Cards
@@ -14,7 +13,6 @@ import Cards
         , OpponentId
         , Point
         , Vec
-        , addCard
         , addCards
         , consolidateHandCards
         , deckAttrs
@@ -65,12 +63,14 @@ import String exposing (fromFloat, fromInt)
 import Task
 import Time
 import WebAuthn exposing (Msg)
+import Cards exposing (addCard_)
+import Cards exposing (updateAni)
+import Cards exposing (updateAni_)
 
 
 type alias Model =
     { counter : Int
     , realmId : RealmId
-    , cardIdGen : Int
     , cards : CardsModel
     , draggedCard : Maybe ( Cards.Card, Point, Int )
     , drag : Draggable.State DragId
@@ -83,13 +83,6 @@ type alias Model =
     , fadingMsg : Maybe ( String, Float )
     }
 
-
-
-{-
-   0 = My Turn
--}
-
-
 type alias RelativeOpponent =
     Int
 
@@ -99,7 +92,7 @@ type Highlight
     | PotentialDrop
 
 
-init__ : Vec -> GameInfo -> ( CardsModel, CardId )
+init__ : Vec -> GameInfo -> CardsModel
 init__ viewportSize { center, hand, opponents, discardPile } =
     let
         centerCards =
@@ -134,21 +127,14 @@ init__ viewportSize { center, hand, opponents, discardPile } =
         cards =
             List.concat [ centerCards, handCards, opponentCards, discardedCards ]
     in
-    ( addCards cards (empty viewportSize)
-    , 0
-    )
+      addCards cards (empty viewportSize)
 
 
 init : RealmId -> GameInfo -> ( Model, Cmd Msg )
 init realmId gameInfo =
-    let
-        ( cards, cardsIdGen ) =
-            init__ (vec 500 500) gameInfo
-    in
     ( { counter = 0
       , realmId = realmId
-      , cardIdGen = cardsIdGen
-      , cards = cards
+      , cards = init__ (vec 500 500) gameInfo
       , pileSize = gameInfo.pileSize
       , highlightedCards = []
       , draggedCard = Nothing
@@ -233,24 +219,15 @@ type Msg
 drawFromDeck : Model -> CardContent -> Model
 drawFromDeck model content =
     let
-        newId =
-            model.cardIdGen
 
-        newCard =
-            { id = newId
-            , location = Deck
-            , content = content
-            }
-
-        withNewCard =
-            addCard model.cards newId newCard Deck content
+        (withNewCard, newId) =
+            addCard_ Deck content model.cards 
 
         nextHandPos =
             1 + fold lastHandId -1 withNewCard
     in
     { model
-        | cardIdGen = model.cardIdGen + 1
-        , cards = moveCardTo withNewCard newId (MyHand nextHandPos)
+        | cards = moveCardTo withNewCard newId (MyHand nextHandPos)
         , pileSize = model.pileSize - 1
         , turn =
             if List.isEmpty model.opponents then
@@ -455,11 +432,11 @@ update {} msg model =
                         { x, y } =
                             toPixels pos
 
-                        fromDrag =
-                            addCard model.cards card.id card (InFlightOpen x y) card.content
+                        (fromDrag, newId) =
+                            addCard_ (InFlightOpen x y) card.content model.cards
 
                         toHand =
-                            moveCardTo fromDrag card.id (MyHand originalHandPos)
+                            moveCardTo fromDrag newId (MyHand originalHandPos)
 
                         dropZoneCard ( id, hl ) =
                             case hl of
@@ -559,20 +536,11 @@ theyPlayed model from to content nextPlayer =
 theyDraw : Model -> OpponentId -> RelativeOpponent -> Model
 theyDraw model opponentId nextPlayer =
     let
-        newId =
-            model.cardIdGen
-
         content =
             NumberCard 1
 
-        newCard =
-            { id = newId
-            , location = Deck
-            , content = content
-            }
-
-        withNewCard =
-            addCard model.cards newId newCard Deck content
+        (withNewCard, newId) =
+            addCard_ Deck content model.cards
 
         nextHandPos =
             case List.head <| List.drop opponentId model.opponents of
@@ -583,8 +551,7 @@ theyDraw model opponentId nextPlayer =
                     0
     in
     { model
-        | cardIdGen = model.cardIdGen + 1
-        , cards = moveCardTo withNewCard newId (TheirHand opponentId nextHandPos)
+        | cards = moveCardTo withNewCard newId (TheirHand opponentId nextHandPos)
         , turn = nextPlayer
     }
 
