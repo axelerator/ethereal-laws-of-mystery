@@ -3,7 +3,7 @@ use crate::{
     startup::AppState,
 };
 
-use auth::USER_INFO;
+use auth::{login_with_credentials, LoginCredentials, LoginCredentialsResponse, USER_INFO};
 use axum::{
     extract::Extension,
     http::StatusCode,
@@ -14,13 +14,15 @@ use axum::{
 };
 
 use axum_server::tls_rustls::RustlsConfig;
-use axum_sessions::extractors::ReadableSession;
+use axum_sessions::extractors::{ReadableSession, WritableSession};
 use axum_sessions::{async_session::MemoryStore, SameSite, SessionLayer};
+use elm_rs::{Elm, ElmDecode, ElmEncode};
 use error::WebauthnError;
 use futures::stream::Stream;
 use hades::ToBackendEnvelope;
 use rand::thread_rng;
 use rand::Rng;
+use serde::{Deserialize, Serialize};
 use std::{convert::Infallible, net::SocketAddr, path::PathBuf, time::Duration};
 use tokio::sync::mpsc;
 use tokio_stream::{wrappers::ReceiverStream, StreamExt as _};
@@ -86,10 +88,15 @@ async fn main() {
     let app = Router::new()
         .nest_service("/", ServeFile::new("www/index.html"))
         .nest_service("/assets", serve_dir)
+        .route("/register_with_credentials", post(register_with_creds))
         .route("/register_start/:username", post(start_register))
         .route("/register_finish", post(finish_register))
         .route("/login_start/:username", post(start_authentication))
         .route("/login_finish", post(finish_authentication))
+        .route(
+            "/login_with_credentials",
+            post(handle_login_with_credentials),
+        )
         .route("/remember", get(remember_handler))
         .route("/send", post(send))
         .route("/events", get(sse_handler))
@@ -176,4 +183,50 @@ pub async fn send(
         tracing::warn!("Received message without session");
         Ok(StatusCode::BAD_REQUEST)
     }
+}
+
+#[derive(Elm, ElmEncode, Deserialize, Debug)]
+pub struct RegisterCredentials {
+    username: String,
+    password: String,
+}
+
+#[derive(Elm, ElmDecode, Serialize, Debug)]
+pub enum RegisterCredentialsResponse {
+    SuccessfullyRegisteredWithCreds,
+    RegisteredWithCredsError(String),
+}
+
+pub async fn register_with_creds(
+    Extension(app_state): Extension<AppState>,
+    mut session: WritableSession,
+    Json(creds): Json<RegisterCredentials>,
+) -> Json<RegisterCredentialsResponse> {
+    let users = app_state.users.lock().await;
+    let user = users.register_with_credentials(
+        &creds.username,
+        &creds.password,
+        &app_state.connection.lock().await,
+    );
+
+    match user {
+        Ok(user) => {
+            let session_id = SessionId::new();
+            let user_info = (session_id.clone(), user.id);
+            session
+                .insert(USER_INFO, user_info)
+                .expect("Unable to write to session");
+
+            Json(RegisterCredentialsResponse::SuccessfullyRegisteredWithCreds)
+        }
+        Err(e) => Json(RegisterCredentialsResponse::RegisteredWithCredsError(e)),
+    }
+}
+
+pub async fn handle_login_with_credentials(
+    app_state: Extension<AppState>,
+    session: WritableSession,
+    Json(creds): Json<LoginCredentials>,
+) -> Json<LoginCredentialsResponse> {
+    Json(login_with_credentials(app_state, session, creds.username, creds.password).await)
 }

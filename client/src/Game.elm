@@ -490,8 +490,13 @@ theyPlayed model from to content nextPlayer =
     case ( idOf from model.cards, idOf to model.cards ) of
         ( Just fromId, Just toId ) ->
             let
+                lastDiscardedPos =
+                    List.length <| idsOf isOnDiscardPile model.cards
+                withoutDiscardedCenterCard =
+                    moveCardTo model.cards toId (DiscardPile (lastDiscardedPos + 1))
+
                 withRevealedCard =
-                    revealContent model.cards fromId content
+                    revealContent withoutDiscardedCenterCard fromId content
 
                 cards =
                     moveCardTo withRevealedCard fromId to

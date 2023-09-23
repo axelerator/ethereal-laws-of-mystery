@@ -9,6 +9,8 @@ use axum::{
     response::IntoResponse,
 };
 use axum_sessions::extractors::WritableSession;
+use elm_rs::{Elm, ElmDecode, ElmEncode};
+use serde::{Deserialize, Serialize};
 
 /*
  * Webauthn RS auth handlers.
@@ -206,7 +208,7 @@ pub async fn start_authentication(
         .get(&user.id)
         .ok_or(WebauthnError::UserHasNoCredentials)?;
         */
-    let allow_credentials = users_guard.credentials_for(&user.id, &connection);
+    let allow_credentials = users_guard.passkey_credentials_for(&user.id, &connection);
     drop(connection);
 
     if allow_credentials.is_empty() {
@@ -267,7 +269,8 @@ pub async fn finish_authentication(
             let users_guard = app_state.users.lock().await;
 
             let connection = app_state.connection.lock().await;
-            let mut allow_credentials = users_guard.credentials_for(&user_unique_id, &connection);
+            let mut allow_credentials =
+                users_guard.passkey_credentials_for(&user_unique_id, &connection);
 
             if allow_credentials.is_empty() {
                 return Err(WebauthnError::UserHasNoCredentials);
@@ -285,6 +288,38 @@ pub async fn finish_authentication(
     login(user_unique_id, app_state, session).await;
     debug!("Authentication Successful!");
     Ok(res)
+}
+
+#[derive(Elm, ElmEncode, Deserialize, Debug)]
+pub struct LoginCredentials {
+    pub username: String,
+    pub password: String,
+}
+
+#[derive(Elm, ElmDecode, Serialize, Debug)]
+pub enum LoginCredentialsResponse {
+    SuccessfullyLoggedInWithCreds,
+    LoginWithCredsNotFound,
+}
+
+pub async fn login_with_credentials(
+    Extension(app_state): Extension<AppState>,
+    mut session: WritableSession,
+    username: String,
+    password: String,
+) -> LoginCredentialsResponse {
+    let users = app_state.users.lock().await;
+    let user =
+        users.by_username_and_password(&username, &password, &app_state.connection.lock().await);
+    drop(users);
+    match user {
+        Some(user) => {
+            login(user.id, app_state, session).await;
+
+            LoginCredentialsResponse::SuccessfullyLoggedInWithCreds
+        }
+        None => LoginCredentialsResponse::LoginWithCredsNotFound,
+    }
 }
 
 pub const USER_INFO: &str = "USER_INFO";

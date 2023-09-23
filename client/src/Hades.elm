@@ -127,6 +127,34 @@ locationEncoder enum =
         CenterRow inner ->
             Json.Encode.object [ ( "CenterRow", Json.Encode.int inner ) ]
 
+type alias LoginCredentials =
+    { username : String
+    , password : String
+    }
+
+
+loginCredentialsEncoder : LoginCredentials -> Json.Encode.Value
+loginCredentialsEncoder struct =
+    Json.Encode.object
+        [ ( "username", (Json.Encode.string) struct.username )
+        , ( "password", (Json.Encode.string) struct.password )
+        ]
+
+
+type alias RegisterCredentials =
+    { username : String
+    , password : String
+    }
+
+
+registerCredentialsEncoder : RegisterCredentials -> Json.Encode.Value
+registerCredentialsEncoder struct =
+    Json.Encode.object
+        [ ( "username", (Json.Encode.string) struct.username )
+        , ( "password", (Json.Encode.string) struct.password )
+        ]
+
+
 realmIdDecoder : Json.Decode.Decoder RealmId
 realmIdDecoder = 
     Json.Decode.oneOf
@@ -381,4 +409,52 @@ opponentDecoder =
         |> Json.Decode.andThen (\x -> Json.Decode.map x (Json.Decode.field "name" (Json.Decode.string)))
         |> Json.Decode.andThen (\x -> Json.Decode.map x (Json.Decode.field "hand_size" (Json.Decode.int)))
 
+
+type LoginCredentialsResponse
+    = SuccessfullyLoggedInWithCreds
+    | LoginWithCredsNotFound
+
+
+loginCredentialsResponseDecoder : Json.Decode.Decoder LoginCredentialsResponse
+loginCredentialsResponseDecoder = 
+    Json.Decode.oneOf
+        [ Json.Decode.string
+            |> Json.Decode.andThen
+                (\x ->
+                    case x of
+                        "SuccessfullyLoggedInWithCreds" ->
+                            Json.Decode.succeed SuccessfullyLoggedInWithCreds
+                        unexpected ->
+                            Json.Decode.fail <| "Unexpected variant " ++ unexpected
+                )
+        , Json.Decode.string
+            |> Json.Decode.andThen
+                (\x ->
+                    case x of
+                        "LoginWithCredsNotFound" ->
+                            Json.Decode.succeed LoginWithCredsNotFound
+                        unexpected ->
+                            Json.Decode.fail <| "Unexpected variant " ++ unexpected
+                )
+        ]
+
+type RegisterCredentialsResponse
+    = SuccessfullyRegisteredWithCreds
+    | RegisteredWithCredsError (String)
+
+
+registerCredentialsResponseDecoder : Json.Decode.Decoder RegisterCredentialsResponse
+registerCredentialsResponseDecoder = 
+    Json.Decode.oneOf
+        [ Json.Decode.string
+            |> Json.Decode.andThen
+                (\x ->
+                    case x of
+                        "SuccessfullyRegisteredWithCreds" ->
+                            Json.Decode.succeed SuccessfullyRegisteredWithCreds
+                        unexpected ->
+                            Json.Decode.fail <| "Unexpected variant " ++ unexpected
+                )
+        , Json.Decode.map RegisteredWithCredsError (Json.Decode.field "RegisteredWithCredsError" (Json.Decode.string))
+        ]
 

@@ -1,8 +1,15 @@
+extern crate argon2;
+
+use argon2::{
+    password_hash::{rand_core::OsRng, PasswordHasher, SaltString},
+    Argon2,
+};
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_rusqlite::*;
 use std::collections::HashMap;
 use tokio::sync::MutexGuard;
+use tracing::debug;
 use webauthn_rs::prelude::AuthenticationResult;
 use webauthn_rs::prelude::Passkey;
 use webauthn_rs::prelude::Uuid;
@@ -29,6 +36,7 @@ pub struct User {
 pub struct Users {
     pub name_to_id: HashMap<String, Uuid>,
     pub keys: HashMap<Uuid, Vec<Passkey>>,
+    pub salt: SaltString,
 }
 
 pub struct PersistedPasskey {
@@ -37,6 +45,15 @@ pub struct PersistedPasskey {
 }
 
 impl Users {
+    pub fn new() -> Users {
+        let salt = SaltString::generate(&mut OsRng);
+        Users {
+            name_to_id: HashMap::new(),
+            keys: HashMap::new(),
+            salt,
+        }
+    }
+
     pub fn register(
         &mut self,
         user_unique_id: UserId,
@@ -44,11 +61,6 @@ impl Users {
         username: String,
         connection: &MutexGuard<Connection>,
     ) {
-        self.keys
-            .entry(user_unique_id)
-            .and_modify(|keys| keys.push(sk.clone()))
-            .or_insert_with(|| vec![sk.clone()]);
-
         self.name_to_id.insert(username.clone(), user_unique_id);
         let passkey_toml: String = toml::to_string(&sk).expect("Failed to serialize PassKey");
         let user = self
@@ -71,8 +83,8 @@ impl Users {
 
         connection
             .execute(
-                "INSERT INTO credentials (user_id, passkey_toml) VALUES (?1, ?2)",
-                (&user.id.to_string(), &passkey_toml),
+                "INSERT INTO credentials (user_id, type, payload) VALUES (?1, ?2, ?3)",
+                (&user.id.to_string(), "passkey", &passkey_toml),
             )
             .unwrap();
     }
@@ -89,13 +101,41 @@ impl Users {
         res.next().map(|row| row.unwrap())
     }
 
-    pub fn credentials_for(
+    pub fn by_username_and_password(
+        &self,
+        username: &str,
+        password: &str,
+        connection: &MutexGuard<Connection>,
+    ) -> Option<User> {
+        let argon2 = Argon2::default();
+        let hashed_password = argon2
+            .hash_password(password.as_bytes(), &self.salt)
+            .unwrap()
+            .to_string();
+        let query = r#"
+                SELECT * FROM users 
+                INNER JOIN credentials on credentials.user_id = users.id 
+                WHERE name = :username AND payload = :payload
+            "#;
+        let mut statement = connection.prepare(query).unwrap();
+
+        let mut res = statement
+            .query_and_then(
+                &[(":username", username), (":payload", &hashed_password)],
+                from_row::<User>,
+            )
+            .unwrap();
+
+        res.next().map(|row| row.unwrap())
+    }
+
+    pub fn passkey_credentials_for(
         &self,
         user_id: &UserId,
         connection: &MutexGuard<Connection>,
     ) -> Vec<PersistedPasskey> {
         let mut stmt = connection
-            .prepare("SELECT ROWID, passkey_toml FROM credentials WHERE user_id = :user_id")
+            .prepare("SELECT ROWID, payload FROM credentials WHERE user_id = :user_id AND type = 'passkey'")
             .unwrap();
         let user_id = user_id.to_string();
         let params = [(":user_id", user_id.as_str())];
@@ -128,10 +168,52 @@ impl Users {
                 toml::to_string(&ppk.passkey).expect("Failed to serialize PassKey");
             connection
                 .execute(
-                    "UPDATE credentials SET passkey_toml = ?1 WHERE ROWID = ?2",
+                    "UPDATE credentials SET payload = ?1 WHERE ROWID = ?2",
                     params![&passkey_toml, &ppk.id],
                 )
                 .unwrap();
         });
+    }
+
+    pub fn register_with_credentials(
+        &self,
+        username: &str,
+        password: &str,
+        connection: &MutexGuard<Connection>,
+    ) -> std::result::Result<User, String> {
+        let user = self.by_username(&username, connection);
+
+        match user {
+            Some(_) => Err("Username already taken".to_string()),
+            None => {
+                let id = Uuid::new_v4();
+                let user = User {
+                    id,
+                    name: username.to_string(),
+                };
+                connection
+                    .execute(
+                        "INSERT INTO users (id, name) VALUES (:id, :name)",
+                        to_params_named(&user).unwrap().to_slice().as_slice(),
+                    )
+                    .expect("Failed to insert");
+
+                let argon2 = Argon2::default();
+                let hashed_password = argon2
+                    .hash_password(password.as_bytes(), &self.salt)
+                    .unwrap()
+                    .to_string();
+
+                debug!("INSERT INTO credentials (user_id, type, payload) VALUES (?1, ?2, ?3)");
+                connection
+                    .execute(
+                        "INSERT INTO credentials (user_id, type, payload) VALUES (?1, ?2, ?3)",
+                        (&user.id.to_string(), "password", &hashed_password),
+                    )
+                    .unwrap();
+
+                Ok(user)
+            }
+        }
     }
 }

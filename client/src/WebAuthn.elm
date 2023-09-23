@@ -1,10 +1,11 @@
 module WebAuthn exposing (Model, Msg, initOnLogin, update, view)
 
-import Html exposing (Html, button, div, input, text)
-import Html.Attributes exposing (value, class)
+import Hades exposing (LoginCredentialsResponse(..), RegisterCredentialsResponse(..), loginCredentialsEncoder, loginCredentialsResponseDecoder, registerCredentialsEncoder, registerCredentialsResponseDecoder)
+import Html exposing (Html, a, button, div, input, text)
+import Html.Attributes exposing (class, value)
 import Html.Events exposing (onClick, onInput)
 import Http
-import Html exposing (a)
+
 
 type alias WithWebAuthnPort msg =
     { webauthn : ( String, String ) -> Cmd msg
@@ -13,15 +14,36 @@ type alias WithWebAuthnPort msg =
 
 initOnLogin : WithWebAuthnPort msg -> String -> ( Model, Cmd msg, Cmd Msg )
 initOnLogin { webauthn } username =
-    ( OnLogin username
+    ( OnLogin username |> withoutError
     , webauthn ( "init", js )
-    , test
+    , testIfSessionAuthenticated
     )
 
 
-type Model
+withoutError : ModelVariant -> Model
+withoutError variant =
+    { error = Nothing
+    , variant = variant
+    }
+withError : String -> ModelVariant -> Model
+withError msg variant =
+    { error = Just msg
+    , variant = variant
+    }
+
+
+
+type alias Model =
+    { error : Maybe String
+    , variant : ModelVariant
+    }
+
+
+type ModelVariant
     = OnSignup String
     | OnLogin String
+    | OnLoginWithCreds String String
+    | OnSignupWithCreds String String
 
 
 type Msg
@@ -31,107 +53,278 @@ type Msg
     | Signup String
     | GotCreationChallenge (Result Http.Error String)
     | GotoLogin
+    | GotoLoginWithCreds
     | GotoSignup
+    | GotoSignupWithCreds
     | Noop (Result Http.Error String)
     | GotRememberMeResponse (Result Http.Error String)
-    | Test
+    | LoginWithCreds String String
+    | SignupWithCreds String String
+    | GotRegistrationResponse (Result Http.Error Hades.RegisterCredentialsResponse)
+    | GotLoginResponse (Result Http.Error Hades.LoginCredentialsResponse)
+    | SignupPasswordChanged String
+    | LoginPasswordChanged String
 
 
 update : WithWebAuthnPort Msg -> Msg -> Model -> ( Model, Cmd Msg )
 update { webauthn } msg model =
-    case msg of
-        Test ->
-            ( model
-            , test
-            )
-        GotoLogin ->
-            ( OnLogin "at"
-            , Cmd.none
-            )
-
-        GotoSignup ->
-            ( OnSignup "at"
-            , Cmd.none
-            )
-
-        Noop res ->
-          let
-              _ = Debug.log "noop" res
-          in
-            ( model
-            , Cmd.none
-            )
-        GotRememberMeResponse res ->
-          case res of
-            Ok ("yay") ->
-              ( model
-              , webauthn ("establishSSEconnection", "")
-              )
-            _ ->
-              let
-                  _ = Debug.log "nay?" res
-              in
-              ( model
-              , Cmd.none
-              )
-
-        LoginUsernameChanged newUsername ->
-            ( OnLogin newUsername
-            , Cmd.none
-            )
-
-        SignupUsernameChanged newUsername ->
-            ( OnSignup newUsername
-            , Cmd.none
-            )
-
-        Signup username ->
-            ( model
-            , registerStart username
-            )
-
-        Login username ->
-            ( model
-            , webauthn ( "login", username )
-            )
-
-        GotCreationChallenge r ->
-            case r of
-                Ok creationChallengeResponse ->
-                    ( model
-                    , webauthn ( "createCredentials", creationChallengeResponse )
+    let
+        ( variant_, cmd , mbErr) =
+            case ( msg, model.variant ) of
+                ( GotoSignupWithCreds, _ ) ->
+                    ( OnSignupWithCreds "at" ""
+                    , Cmd.none
+                    , Nothing
                     )
 
-                Err e ->
+                ( GotoLoginWithCreds, _ ) ->
+                    ( OnLoginWithCreds "at" ""
+                    , Cmd.none
+                    , Nothing
+                    )
+
+                ( GotoLogin, _ ) ->
+                    ( OnLogin "at"
+                    , Cmd.none
+                    , Nothing
+                    )
+
+                ( GotoSignup, _ ) ->
+                    ( OnSignup "at"
+                    , Cmd.none
+                    , Nothing
+                    )
+
+                ( Noop res, m ) ->
                     let
                         _ =
-                            Debug.log "WA error:" e
+                            Debug.log "noop" res
                     in
-                    ( model, Cmd.none )
+                    ( m
+                    , Cmd.none
+                    , Nothing
+                    )
+
+                ( GotRememberMeResponse res, m ) ->
+                    case res of
+                        Ok "yay" ->
+                            ( m
+                            , webauthn ( "establishSSEconnection", "" )
+                            , Nothing
+                            )
+
+                        _ ->
+                            let
+                                _ =
+                                    Debug.log "nay?" res
+                            in
+                            ( m
+                            , Cmd.none
+                            , Nothing
+                            )
+
+                ( LoginUsernameChanged newUsername, OnLogin _ ) ->
+                    ( OnLogin newUsername
+                    , Cmd.none
+                    , Nothing
+                    )
+
+                ( LoginUsernameChanged newUsername, OnLoginWithCreds _ password ) ->
+                    ( OnLoginWithCreds newUsername password
+                    , Cmd.none
+                    , Nothing
+                    )
+
+                ( LoginPasswordChanged newPw, OnLoginWithCreds username _ ) ->
+                    ( OnLoginWithCreds username newPw
+                    , Cmd.none
+                    , Nothing
+                    )
+
+                ( SignupUsernameChanged newUsername, OnSignup _ ) ->
+                    ( OnSignup newUsername
+                    , Cmd.none
+                    , Nothing
+                    )
+
+                ( SignupUsernameChanged newUsername, OnSignupWithCreds _ password ) ->
+                    ( OnSignupWithCreds newUsername password
+                    , Cmd.none
+                    , Nothing
+                    )
+
+                ( SignupPasswordChanged newPw, OnSignupWithCreds username _ ) ->
+                    ( OnSignupWithCreds username newPw
+                    , Cmd.none
+                    , Nothing
+                    )
+
+                ( Signup username, model_ ) ->
+                    ( model_
+                    , registerStart username
+                    , Nothing
+                    )
+
+                ( SignupWithCreds username password, model_ ) ->
+                    ( model_
+                    , registerWithCredentials username password
+                    , Nothing
+                    )
+
+                ( Login username, model_ ) ->
+                    ( model_
+                    , webauthn ( "login", username )
+                    , Nothing
+                    )
+
+                ( LoginWithCreds username password, model_ ) ->
+                    ( model_
+                    , loginWithCredentials username password
+                    , Nothing
+                    )
+
+                ( GotCreationChallenge r, model_ ) ->
+                    case r of
+                        Ok creationChallengeResponse ->
+                            ( model_
+                            , webauthn ( "createCredentials", creationChallengeResponse )
+                            , Nothing
+                            )
+
+                        Err e ->
+                            let
+                                _ =
+                                    Debug.log "WA error:" e
+                            in
+                            ( model_, Cmd.none , Nothing)
+
+                ( GotRegistrationResponse r, model_ ) ->
+                    case r of
+                        Ok SuccessfullyRegisteredWithCreds ->
+                            ( model_
+                            , Cmd.none
+                            , Nothing
+                            )
+
+                        Ok (RegisteredWithCredsError e) ->
+                            ( model_
+                            , Cmd.none
+                            , Nothing
+                            )
+
+                        Err e ->
+                            let
+                                _ =
+                                    Debug.log "WA error:" e
+                            in
+                            ( model_, Cmd.none , Nothing )
+
+                ( GotLoginResponse r, model_ ) ->
+                    case r of
+                        Ok SuccessfullyLoggedInWithCreds ->
+                            ( model_
+                            , webauthn ( "establishSSEconnection", "" )
+                            , Nothing
+                            )
+
+                        Ok LoginWithCredsNotFound ->
+                            ( model_
+                            , Cmd.none
+                            , Just "User or password not correct"  
+                            )
+
+                        Err e ->
+                            let
+                                _ =
+                                    Debug.log "WA error:" e
+                            in
+                            ( model_, Cmd.none , Nothing)
+
+                ( _, model_ ) ->
+                    ( model_, Cmd.none , Nothing)
+    in
+    ( { error = mbErr,  variant = variant_}, cmd )
 
 
 subscriptions : Model -> Sub Msg
 subscriptions _ =
     Sub.none
 
-
 view : Model -> Html Msg
 view model =
-    case model of
-        OnSignup username ->
-            div []
-                [ input [ value username, onInput SignupUsernameChanged ] []
-                , button [ onClick <| Signup username ] [ text "Sign up" ]
-                , a [onClick GotoLogin] [text "goto login"]
-                ]
+    let
+        mainContent =
+            case model.variant of
+                OnSignup username ->
+                    div []
+                        [ input [ value username, onInput SignupUsernameChanged ] []
+                        , button [ onClick <| Signup username ] [ text "Sign up" ]
+                        , logingOptions GotoSignup
+                        ]
 
-        OnLogin username ->
-            div []
-                [ input [ value username, onInput LoginUsernameChanged ] []
-                , button [ onClick <| Login username ] [ text "login" ]
-                , button [ class "secondary", onClick GotoSignup] [text "goto signup"]
-                ]
+                OnLogin username ->
+                    div []
+                        [ input [ value username, onInput LoginUsernameChanged ] []
+                        , button [ onClick <| Login username ] [ text "login" ]
+                        , logingOptions GotoLogin
+                        ]
 
+                OnLoginWithCreds username password ->
+                    div []
+                        [ input [ value username, onInput LoginUsernameChanged ] []
+                        , input [ value password, onInput LoginPasswordChanged ] []
+                        , button [ onClick <| LoginWithCreds username password ] [ text "login" ]
+                        , logingOptions GotoLoginWithCreds
+                        ]
+
+                OnSignupWithCreds username password ->
+                    div []
+                        [ input [ value username, onInput SignupUsernameChanged ] []
+                        , input [ value password, onInput SignupPasswordChanged ] []
+                        , button [ onClick <| SignupWithCreds username password ] [ text "sign up" ]
+                        , logingOptions GotoSignupWithCreds
+                        ]
+    in
+    div []
+        [ errorFlash model
+        , mainContent
+        ]
+
+
+errorFlash : Model -> Html Msg
+errorFlash { error } =
+    case error of
+        Just msg ->
+            div [ class "auth-error" ] [ text msg ]
+
+        Nothing ->
+            text ""
+
+
+logingOptions : Msg -> Html Msg
+logingOptions from =
+    div []
+        [ if from == GotoSignup then
+            text ""
+
+          else
+            button [ class "secondary", onClick GotoSignup ] [ text "goto signup with webauthn" ]
+        , if from == GotoSignupWithCreds then
+            text ""
+
+          else
+            button [ class "secondary", onClick GotoSignupWithCreds ] [ text "goto signup with password" ]
+        , if from == GotoLogin then
+            text ""
+
+          else
+            button [ class "secondary", onClick GotoLogin ] [ text "goto login with webauthn" ]
+        , if from == GotoLoginWithCreds then
+            text ""
+
+          else
+            button [ class "secondary", onClick GotoLoginWithCreds ] [ text "goto login with password" ]
+        ]
 
 
 registerStart : String -> Cmd Msg
@@ -152,12 +345,31 @@ registerFinish username =
         }
 
 
-test : Cmd Msg
-test =
+registerWithCredentials : String -> String -> Cmd Msg
+registerWithCredentials username password =
+    Http.post
+        { url = "/register_with_credentials"
+        , body = Http.jsonBody <| registerCredentialsEncoder { username = username, password = password }
+        , expect = Http.expectJson GotRegistrationResponse registerCredentialsResponseDecoder
+        }
+
+
+loginWithCredentials : String -> String -> Cmd Msg
+loginWithCredentials username password =
+    Http.post
+        { url = "/login_with_credentials"
+        , body = Http.jsonBody <| loginCredentialsEncoder { username = username, password = password }
+        , expect = Http.expectJson GotLoginResponse loginCredentialsResponseDecoder
+        }
+
+
+testIfSessionAuthenticated : Cmd Msg
+testIfSessionAuthenticated =
     Http.get
         { url = "/remember"
         , expect = Http.expectString GotRememberMeResponse
         }
+
 
 js =
     """

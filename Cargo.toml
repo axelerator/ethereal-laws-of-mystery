@@ -24,3 +24,5 @@ futures = "0.3.28"
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 axum-server = { version = "0.5.1", features = ["tls-rustls"] }
+argon2 = "0.5.2"
+password-hash = "0.5.0"
