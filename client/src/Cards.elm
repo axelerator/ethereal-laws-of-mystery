@@ -26,6 +26,7 @@ type alias CardsModelDetails =
     { visuals : Visuals
     , cards : List Card
     , viewportInfo : ViewportInfo
+    , cardIdGen : CardId
     }
 
 
@@ -52,6 +53,16 @@ type alias Model =
     , idGen : Int
     , animatedCards : CardsModel
     }
+
+
+empty : Vec -> CardsModel
+empty viewportSize =
+    CardsModel
+        { cards = []
+        , visuals = []
+        , viewportInfo = viewportInfoFor viewportSize
+        , cardIdGen = 0
+        }
 
 
 init_ : Vec -> GameInfo -> ( CardsModel, CardId )
@@ -133,6 +144,7 @@ init_ viewportSize { center, hand, opponents, discardPile } =
         { cards = cards
         , visuals = visuals
         , viewportInfo = viewportInfo
+        , cardIdGen = finalId + 1
         }
     , finalId + 1
     )
@@ -301,6 +313,34 @@ discardPileAttrs (CardsModel { viewportInfo }) n =
             }
     in
     Tuple.first <| cssTransforms props
+
+
+addCards : List ( Location, CardContent ) -> CardsModel -> CardsModel
+addCards newCards model =
+    let
+        addCard__ : ( Location, CardContent ) -> CardsModel -> CardsModel
+        addCard__ c m =
+            addCard_ c m |> Tuple.first
+    in
+    List.foldr addCard__ model newCards
+
+
+addCard_ : ( Location, CardContent ) -> CardsModel -> ( CardsModel, CardId )
+addCard_ ( location, content ) (CardsModel ({ cards, cardIdGen } as rest)) =
+    let
+        newCard =
+            { id = cardIdGen
+            , location = location
+            , content = content
+            }
+
+        withNewCard =
+            newCard :: cards
+    in
+    ( CardsModel
+        { rest | cards = withNewCard, cardIdGen = cardIdGen + 1 }
+    , cardIdGen
+    )
 
 
 addCard : CardsModel -> CardId -> Card -> Location -> CardContent -> CardsModel
@@ -1004,7 +1044,7 @@ lastHandId { location } p =
 
 
 consolidateHandCards : CardsModel -> CardsModel
-consolidateHandCards (CardsModel { cards, visuals, viewportInfo }) =
+consolidateHandCards (CardsModel { cards, visuals, viewportInfo, cardIdGen }) =
     let
         ( handCards, otherCards ) =
             List.partition isInMyHand cards
@@ -1034,6 +1074,7 @@ consolidateHandCards (CardsModel { cards, visuals, viewportInfo }) =
         { cards = cards_
         , visuals = updateAni viewportInfo cards_ visuals
         , viewportInfo = viewportInfo
+        , cardIdGen = cardIdGen
         }
 
 

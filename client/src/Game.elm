@@ -15,9 +15,11 @@ import Cards
         , Point
         , Vec
         , addCard
+        , addCards
         , consolidateHandCards
         , deckAttrs
         , draggedOver
+        , empty
         , fold
         , idOf
         , idsOf
@@ -97,11 +99,51 @@ type Highlight
     | PotentialDrop
 
 
+init__ : Vec -> GameInfo -> ( CardsModel, CardId )
+init__ viewportSize { center, hand, opponents, discardPile } =
+    let
+        centerCards =
+            List.indexedMap (\i c -> ( CenterRow i, c )) center
+
+        handCards =
+            List.indexedMap (\i c -> ( MyHand i, c )) hand
+
+        opponentCards =
+            List.indexedMap mkOpponentCards opponents |> List.concat
+
+        hiddenContent =
+            NumberCard 1
+
+        mkOpponentCards : Int -> Opponent -> List ( Location, CardContent )
+        mkOpponentCards opId { handSize } =
+            List.map (mkOpponentCard opId) <| List.range 0 handSize
+
+        mkOpponentCard opId handPos =
+            ( TheirHand opId handPos
+            , hiddenContent
+            )
+
+        discardedCards =
+            List.indexedMap mkDiscarded discardPile
+
+        mkDiscarded i content =
+            ( DiscardPile i
+            , content
+            )
+
+        cards =
+            List.concat [ centerCards, handCards, opponentCards, discardedCards ]
+    in
+    ( addCards cards (empty viewportSize)
+    , 0
+    )
+
+
 init : RealmId -> GameInfo -> ( Model, Cmd Msg )
 init realmId gameInfo =
     let
         ( cards, cardsIdGen ) =
-            Cards.init_ (vec 500 500) gameInfo
+            init__ (vec 500 500) gameInfo
     in
     ( { counter = 0
       , realmId = realmId
@@ -210,7 +252,12 @@ drawFromDeck model content =
         | cardIdGen = model.cardIdGen + 1
         , cards = moveCardTo withNewCard newId (MyHand nextHandPos)
         , pileSize = model.pileSize - 1
-        , turn = 1
+        , turn =
+            if List.isEmpty model.opponents then
+                0
+
+            else
+                1
     }
 
 
@@ -240,7 +287,12 @@ placeInFlightCard model targetLocation =
     in
     { model
         | cards = consolidateHandCards cards
-        , turn = 1
+        , turn =
+            if List.isEmpty model.opponents then
+                0
+
+            else
+                1
     }
 
 
