@@ -16,9 +16,7 @@ import Cards
         , Vec
         , addCard
         , consolidateHandCards
-        , contentOf
         , deckAttrs
-        , discardPileAttrs
         , draggedOver
         , fold
         , idOf
@@ -32,7 +30,6 @@ import Cards
         , moveCardTo
         , numberCenterCards
         , operatorCenterCards
-        , removeCards
         , revealContent
         , updateViewport
         , vec
@@ -56,13 +53,13 @@ import Hades
         , toBackendEnvelopeEncoder
         )
 import Html exposing (Attribute, Html, a, br, button, div, p, span, text)
-import Html.Attributes exposing (attribute, class, dropzone, id, style)
-import Html.Events exposing (on, onClick)
+import Html.Attributes exposing (attribute, class, id, style)
+import Html.Events exposing (onClick)
 import Http exposing (jsonBody)
-import Maybe.Extra exposing (next, values)
-import Point2d exposing (fromPixels, toPixels)
+import Maybe.Extra exposing (values)
+import Point2d exposing (toPixels)
 import PseudoRandom
-import String exposing (dropLeft, fromFloat, fromInt)
+import String exposing (fromFloat, fromInt)
 import Task
 import Time
 import WebAuthn exposing (Msg)
@@ -129,7 +126,7 @@ subscriptions model =
     let
         msgSub =
             case model.fadingMsg of
-                Just ( msg, timeLeft ) ->
+                Just ( _, timeLeft ) ->
                     Time.every timeLeft FadeMsg
 
                 Nothing ->
@@ -189,10 +186,6 @@ type Msg
     | Resized Int Int
     | ReturnToLobby
     | FadeMsg Time.Posix
-
-
-updateFromRealm toFrontend model =
-    model
 
 
 drawFromDeck : Model -> CardContent -> Model
@@ -284,7 +277,7 @@ returnToLobby msg =
 
 
 update : { a | webauthn : b } -> Msg -> Model -> ( Model, Cmd Msg )
-update { webauthn } msg model =
+update {} msg model =
     case msg of
         ReturnToLobby ->
             ( model
@@ -492,6 +485,7 @@ theyPlayed model from to content nextPlayer =
             let
                 lastDiscardedPos =
                     List.length <| idsOf isOnDiscardPile model.cards
+
                 withoutDiscardedCenterCard =
                     moveCardTo model.cards toId (DiscardPile (lastDiscardedPos + 1))
 
@@ -682,7 +676,7 @@ highlightClass hl =
 
 
 cardView : Bool -> List ( CardId, Highlight ) -> Card -> CardAniAttrs Msg -> Html Msg
-cardView isDragging highlightedCards card ( aniAttrs, innerAttrs ) =
+cardView _ highlightedCards card ( aniAttrs, innerAttrs ) =
     let
         dragTrigger =
             case card.location of
@@ -715,7 +709,7 @@ cardView isDragging highlightedCards card ( aniAttrs, innerAttrs ) =
                 InFlightOpen _ _ ->
                     300
 
-                CenterRow i ->
+                CenterRow _ ->
                     0
 
         class_ =
@@ -723,7 +717,7 @@ cardView isDragging highlightedCards card ( aniAttrs, innerAttrs ) =
                 Deck ->
                     "deck"
 
-                MyHand i ->
+                MyHand _ ->
                     "hand player-0"
 
                 TheirHand op _ ->
@@ -738,7 +732,7 @@ cardView isDragging highlightedCards card ( aniAttrs, innerAttrs ) =
                 InFlightOpen _ _ ->
                     "inFlightOpen"
 
-                CenterRow i ->
+                CenterRow _ ->
                     "centerRow"
     in
     div

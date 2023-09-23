@@ -4,17 +4,14 @@ import Animation exposing (Animation)
 import Browser.Events exposing (onAnimationFrameDelta)
 import Ease exposing (outCubic)
 import Hades exposing (CardContent(..), GameInfo, Location(..), Opponent)
-import Html exposing (Attribute, Html, div, node, p, text)
-import Html.Attributes exposing (class, id, style)
-import Html.Events exposing (onClick)
-import Http exposing (post)
-import Json.Decode exposing (bool)
+import Html exposing (Attribute, Html, node, p, text)
+import Html.Attributes exposing (id, style)
 import List exposing (length, range)
 import Maybe.Extra exposing (values)
 import Pixels
 import Point2d exposing (toPixels)
 import PseudoRandom
-import Rectangle2d exposing (Rectangle2d)
+import Rectangle2d
 import String exposing (fromFloat)
 import Vector2d
 
@@ -276,7 +273,7 @@ draggedOver pointerPos (CardsModel { viewportInfo, visuals }) =
                     in
                     Rectangle2d.contains pointerPos cardRect
 
-                Animation _ from to t ->
+                Animation _ _ _ _ ->
                     False
 
                 Vanished ->
@@ -329,16 +326,6 @@ addCard (CardsModel ({ cards, visuals, viewportInfo } as rest)) newId _ location
             | cards = withNewCard
             , visuals = withNewCardOnDeck
         }
-
-
-removeCards : List CardId -> CardsModel -> CardsModel
-removeCards cardIds ((CardsModel ({ cards, visuals, viewportInfo } as rest)) as model) =
-    let
-        cards_ =
-            List.filter (\c -> not (List.member c.id cardIds)) cards
-    in
-    CardsModel
-        { rest | cards = cards_, visuals = updateAni viewportInfo cards_ visuals }
 
 
 removeCard : CardId -> CardsModel -> ( Maybe ( Card, Point ), CardsModel )
