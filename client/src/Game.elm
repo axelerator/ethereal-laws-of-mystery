@@ -12,26 +12,38 @@ import Cards
         , CardsModel
         , OpponentId
         , Point
+        , Props
         , Vec
+        , ViewportInfo
+        , addCard_
         , addCards
         , consolidateHandCards
-        , deckAttrs
+        , discardPileWiggle
         , draggedOver
         , empty
         , fold
         , idOf
         , idsOf
-        , inlineCSS
+        , inOpponentsHandCards_
+        , interpolate
         , isInInflight
         , isOnDiscardPile
         , lastHandId
         , locationOf
+        , maxSpread
         , move
         , moveCardTo
+        , myHandCards
         , numberCenterCards
+        , offsetPerCard
+        , offsetPerCardV
         , operatorCenterCards
+        , point
+        , px
         , revealContent
-        , updateViewport
+        , startSpread
+        , times
+        , updateAni
         , vec
         )
 import Draggable
@@ -52,20 +64,19 @@ import Hades
         , Transition(..)
         , toBackendEnvelopeEncoder
         )
-import Html exposing (Attribute, Html, a, br, button, div, p, span, text)
+import Html exposing (Attribute, Html, a, br, button, div, node, p, span, text)
 import Html.Attributes exposing (attribute, class, id, style)
 import Html.Events exposing (onClick)
 import Http exposing (jsonBody)
 import Maybe.Extra exposing (values)
+import Pixels
 import Point2d exposing (toPixels)
 import PseudoRandom
 import String exposing (fromFloat, fromInt)
 import Task
 import Time
+import Vector2d
 import WebAuthn exposing (Msg)
-import Cards exposing (addCard_)
-import Cards exposing (updateAni)
-import Cards exposing (updateAni_)
 
 
 type alias Model =
@@ -76,12 +87,14 @@ type alias Model =
     , drag : Draggable.State DragId
     , highlightedCards : List ( CardId, Highlight )
     , viewportSize : Vec
+    , viewportInfo : ViewportInfo
     , gameState : GameState
     , opponents : List Opponent
     , turn : RelativeOpponent
     , pileSize : Int
     , fadingMsg : Maybe ( String, Float )
     }
+
 
 type alias RelativeOpponent =
     Int
@@ -127,7 +140,7 @@ init__ viewportSize { center, hand, opponents, discardPile } =
         cards =
             List.concat [ centerCards, handCards, opponentCards, discardedCards ]
     in
-      addCards cards (empty viewportSize)
+    addCards cards (empty viewportSize)
 
 
 init : RealmId -> GameInfo -> ( Model, Cmd Msg )
@@ -140,6 +153,7 @@ init realmId gameInfo =
       , draggedCard = Nothing
       , drag = Draggable.init
       , viewportSize = vec 500 500
+      , viewportInfo = viewportInfoFor <| vec 500 500
       , gameState = gameInfo.gameState
       , opponents = gameInfo.opponents
       , turn = gameInfo.turn
@@ -219,15 +233,17 @@ type Msg
 drawFromDeck : Model -> CardContent -> Model
 drawFromDeck model content =
     let
+        cardPos =
+            cardPositions model
 
-        (withNewCard, newId) =
-            addCard_ Deck content model.cards 
+        ( withNewCard, newId ) =
+            addCard_ cardPos Deck content model.cards
 
         nextHandPos =
             1 + fold lastHandId -1 withNewCard
     in
     { model
-        | cards = moveCardTo withNewCard newId (MyHand nextHandPos)
+        | cards = moveCardTo cardPos withNewCard newId (MyHand nextHandPos)
         , pileSize = model.pileSize - 1
         , turn =
             if List.isEmpty model.opponents then
@@ -255,15 +271,15 @@ placeInFlightCard model targetLocation =
                             List.length <| idsOf isOnDiscardPile model.cards
 
                         withoutDiscardedCenterCard =
-                            moveCardTo model.cards toId (DiscardPile (lastDiscardedPos + 1))
+                            moveCardTo (cardPositions model) model.cards toId (DiscardPile (lastDiscardedPos + 1))
                     in
-                    moveCardTo withoutDiscardedCenterCard fromId targetLocation
+                    moveCardTo (cardPositions model) withoutDiscardedCenterCard fromId targetLocation
 
                 _ ->
                     model.cards
     in
     { model
-        | cards = consolidateHandCards cards
+        | cards = consolidateHandCards (cardPositions model) cards
         , turn =
             if List.isEmpty model.opponents then
                 0
@@ -314,7 +330,14 @@ update {} msg model =
             )
 
         GotViewPort { scene } ->
-            ( { model | cards = updateViewport (vec scene.width scene.height) model.cards }
+            let
+                viewportInfo =
+                    viewportInfoFor <| vec scene.width scene.height
+            in
+            ( { model
+                | cards = updateAni (screenPos viewportInfo) model.cards
+                , viewportInfo = viewportInfo
+              }
             , Cmd.none
             )
 
@@ -394,7 +417,7 @@ update {} msg model =
         OnDragStart ( cardId, originalHandPos ) ->
             let
                 ( card, cards_ ) =
-                    Cards.removeCard cardId model.cards
+                    Cards.removeCard (cardPositions model) cardId model.cards
 
                 highlightedCards =
                     case ( card, model.turn ) of
@@ -432,11 +455,11 @@ update {} msg model =
                         { x, y } =
                             toPixels pos
 
-                        (fromDrag, newId) =
-                            addCard_ (InFlightOpen x y) card.content model.cards
+                        ( fromDrag, newId ) =
+                            addCard_ (cardPositions model) (InFlightOpen x y) card.content model.cards
 
                         toHand =
-                            moveCardTo fromDrag newId (MyHand originalHandPos)
+                            moveCardTo (cardPositions model) fromDrag newId (MyHand originalHandPos)
 
                         dropZoneCard ( id, hl ) =
                             case hl of
@@ -481,7 +504,7 @@ update {} msg model =
                             move (vec dx dy) pos
 
                         highlightedCards =
-                            case draggedOver newPos model.cards of
+                            case draggedOver newPos model.viewportInfo model.cards of
                                 Just cardId ->
                                     highlightAsDropZone model.highlightedCards cardId
 
@@ -516,13 +539,13 @@ theyPlayed model from to content nextPlayer =
                     List.length <| idsOf isOnDiscardPile model.cards
 
                 withoutDiscardedCenterCard =
-                    moveCardTo model.cards toId (DiscardPile (lastDiscardedPos + 1))
+                    moveCardTo (cardPositions model) model.cards toId (DiscardPile (lastDiscardedPos + 1))
 
                 withRevealedCard =
                     revealContent withoutDiscardedCenterCard fromId content
 
                 cards =
-                    moveCardTo withRevealedCard fromId to
+                    moveCardTo (cardPositions model) withRevealedCard fromId to
             in
             { model
                 | cards = cards
@@ -539,8 +562,8 @@ theyDraw model opponentId nextPlayer =
         content =
             NumberCard 1
 
-        (withNewCard, newId) =
-            addCard_ Deck content model.cards
+        ( withNewCard, newId ) =
+            addCard_ (cardPositions model) Deck content model.cards
 
         nextHandPos =
             case List.head <| List.drop opponentId model.opponents of
@@ -551,11 +574,12 @@ theyDraw model opponentId nextPlayer =
                     0
     in
     { model
-        | cards = moveCardTo withNewCard newId (TheirHand opponentId nextHandPos)
+        | cards = moveCardTo (cardPositions model) withNewCard newId (TheirHand opponentId nextHandPos)
         , turn = nextPlayer
     }
 
 
+view : Model -> Html Msg
 view model =
     let
         wonCSS =
@@ -591,7 +615,7 @@ view model =
             "turn-" ++ fromInt model.turn
     in
     div []
-        [ inlineCSS model.cards
+        [ inlineCSS model.viewportInfo
         , wonDiv
         , fadeMsgView model.fadingMsg
         , div [ class <| turnCSS ++ " cards " ++ wonCSS ]
@@ -769,11 +793,11 @@ deckCard =
     { id = -1, location = Deck, content = NumberCard 1 }
 
 
-deckCardAni : CardsModel -> CardAniAttrs Msg
-deckCardAni model =
+deckCardAni : ViewportInfo -> CardAniAttrs Msg
+deckCardAni viewportInfo =
     let
         ( attrs, iattrs ) =
-            deckAttrs model
+            deckAttrs viewportInfo
     in
     ( onClick Draw :: attrs, iattrs )
 
@@ -795,19 +819,226 @@ stack size attrs =
             wiggles
 
 
-deckView : Int -> CardsModel -> Html Msg
-deckView deckSize cards =
+deckView : ViewportInfo -> Int -> Html Msg
+deckView viewportInfo deckSize =
     let
         ( attrs, _ ) =
-            deckAttrs cards
+            deckAttrs viewportInfo
     in
     div [ class "deck-stack" ]
-        [ cardView False [] deckCard (deckCardAni cards)
+        [ cardView False [] deckCard (deckCardAni viewportInfo)
         , stack deckSize attrs
         ]
 
 
 cardsView : Model -> List (Html Msg)
-cardsView { cards, highlightedCards, draggedCard, pileSize } =
-    deckView pileSize cards
+cardsView { cards, highlightedCards, draggedCard, pileSize, viewportInfo } =
+    deckView viewportInfo pileSize
         :: Cards.viewAnis cards (cardView (Maybe.Extra.isJust draggedCard) highlightedCards)
+
+
+cardPositions : Model -> CardsModel -> Location -> Props
+cardPositions { viewportInfo } =
+    screenPos viewportInfo
+
+
+centerRowCardGutterFactor =
+    1.15
+
+
+screenPos : ViewportInfo -> CardsModel -> Location -> Props
+screenPos viewportInfo cardsModel loc =
+    case loc of
+        Deck ->
+            viewportInfo.deckPos
+
+        DiscardPile pos ->
+            let
+                default =
+                    viewportInfo.discardPilePos
+            in
+            { default
+                | degrees = Maybe.withDefault 0 <| List.head <| List.drop pos discardPileWiggle
+            }
+
+        MyHand p ->
+            let
+                handCardCount =
+                    List.length <| myHandCards cardsModel
+
+                degreePerCard =
+                    maxSpread / toFloat handCardCount
+
+                totalWidth =
+                    times (toFloat handCardCount) offsetPerCard
+
+                left =
+                    move (times -0.5 totalWidth) viewportInfo.handOrigin
+            in
+            { pos = move (times (toFloat p) offsetPerCard) left
+            , opacity = 1.0
+            , degrees = startSpread + degreePerCard * toFloat p
+            , flip = 0
+            }
+
+        TheirHand opponentId p ->
+            case opponentId of
+                1 ->
+                    let
+                        handCardCount =
+                            List.length <| inOpponentsHandCards_ opponentId cardsModel
+
+                        degreePerCard =
+                            maxSpread / toFloat handCardCount
+
+                        totalHeight =
+                            times (toFloat handCardCount) offsetPerCardV
+
+                        ( _, viewportHeight ) =
+                            Vector2d.toTuple Pixels.inPixels viewportInfo.size
+
+                        top =
+                            move (times -0.5 totalHeight) (point (viewportInfo.cardSize.width * -0.5) (viewportHeight * 0.5))
+                    in
+                    { pos = move (times (toFloat p) offsetPerCardV) top
+                    , opacity = 1.0
+                    , degrees = -90 + (startSpread + degreePerCard * toFloat p)
+                    , flip = 180
+                    }
+
+                2 ->
+                    let
+                        handCardCount =
+                            List.length <| inOpponentsHandCards_ opponentId cardsModel
+
+                        degreePerCard =
+                            maxSpread / toFloat handCardCount
+
+                        totalWidth =
+                            times (toFloat handCardCount) offsetPerCard
+
+                        { x } =
+                            toPixels viewportInfo.handOrigin
+
+                        left =
+                            move (times -0.5 totalWidth) (point x (viewportInfo.cardSize.height * -0.5))
+                    in
+                    { pos = move (times (toFloat p) offsetPerCard) left
+                    , opacity = 1.0
+                    , degrees = -startSpread - degreePerCard * toFloat p
+                    , flip = 180
+                    }
+
+                _ ->
+                    Debug.todo "positions for third opp "
+
+        InFlight x y ->
+            { pos = point x y
+            , opacity = 1.0
+            , degrees = 10
+            , flip = 180
+            }
+
+        InFlightOpen x y ->
+            { pos = point x y
+            , opacity = 1.0
+            , degrees = 10
+            , flip = 0
+            }
+
+        CenterRow i ->
+            { pos = centerRowSpot viewportInfo i
+            , opacity = 1.0
+            , degrees = 0
+            , flip = 0
+            }
+
+
+viewportInfoFor : Vec -> ViewportInfo
+viewportInfoFor size =
+    let
+        ( width, height ) =
+            Vector2d.toTuple Pixels.inPixels size
+
+        cardHeight =
+            height / 4
+
+        cardWidth =
+            cardHeight * 0.7
+
+        centerRowWidth =
+            5 * centerRowCardGutterFactor * cardWidth
+
+        centerRowX =
+            (width * 0.5) - (centerRowWidth * 0.5)
+
+        centerRowY =
+            (height * 0.5) - (cardHeight * (centerRowCardGutterFactor + 0.25))
+
+        deckPosX =
+            (width * 0.5) - (centerRowCardGutterFactor * cardWidth)
+
+        deckPosY =
+            centerRowY + (centerRowCardGutterFactor * cardHeight)
+
+        deckPos : Props
+        deckPos =
+            { pos = point deckPosX deckPosY
+            , degrees = 0
+            , opacity = 1.0
+            , flip = 180
+            }
+
+        discardPilePos =
+            { pos = point (deckPosX + (centerRowCardGutterFactor * cardWidth)) deckPosY
+            , degrees = 0
+            , opacity = 1.0
+            , flip = 0
+            }
+
+        handOriginX =
+            width * 0.5
+
+        handOriginY =
+            height - cardHeight
+    in
+    { size = size
+    , handOrigin = point handOriginX handOriginY
+    , cardSize =
+        { vec = vec cardWidth cardHeight
+        , width = cardWidth
+        , height = cardHeight
+        , font = cardHeight * 0.1
+        }
+    , centerRowOrigin = point centerRowX centerRowY
+    , deckPos = deckPos
+    , discardPilePos = discardPilePos
+    }
+
+
+inlineCSS : ViewportInfo -> Html msg
+inlineCSS viewportInfo =
+    let
+        inlineRawCss =
+            String.join "\n" <|
+                [ ".card, .stack, .stack::after {"
+                , " width: " ++ px viewportInfo.cardSize.width ++ ";"
+                , " height: " ++ px viewportInfo.cardSize.height ++ ";"
+                , " font-size: " ++ px viewportInfo.cardSize.font ++ ""
+                , "}"
+                ]
+    in
+    node "style" [] [ text <| inlineRawCss ]
+
+
+deckAttrs : ViewportInfo -> CardAniAttrs msg
+deckAttrs viewportInfo =
+    interpolate (Settled viewportInfo.deckPos)
+
+
+
+
+
+centerRowSpot : ViewportInfo -> Int -> Point
+centerRowSpot { centerRowOrigin, cardSize } i =
+    move (vec (toFloat i * centerRowCardGutterFactor * cardSize.width) 0) centerRowOrigin

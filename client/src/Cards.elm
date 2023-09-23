@@ -3,8 +3,8 @@ module Cards exposing (..)
 import Animation exposing (Animation)
 import Browser.Events exposing (onAnimationFrameDelta)
 import Ease exposing (outCubic)
-import Hades exposing (CardContent(..), GameInfo, Location(..), Opponent)
-import Html exposing (Attribute, Html, node, p, text)
+import Hades exposing (CardContent(..), Location(..))
+import Html exposing (Attribute, Html, p)
 import Html.Attributes exposing (id, style)
 import List exposing (length, range)
 import Maybe.Extra exposing (values)
@@ -25,18 +25,7 @@ type Msg
 type alias CardsModelDetails =
     { visuals : Visuals
     , cards : List Card
-    , viewportInfo : ViewportInfo
     , cardIdGen : CardId
-    }
-
-
-type alias ViewportInfo =
-    { size : Vec
-    , handOrigin : Point
-    , cardSize : { vec : Vec, width : Float, height : Float, font : Float }
-    , centerRowOrigin : Point
-    , deckPos : Props
-    , discardPilePos : Props
     }
 
 
@@ -55,15 +44,23 @@ type alias Model =
     }
 
 
+type alias ViewportInfo =
+    { size : Vec
+    , handOrigin : Point
+    , cardSize : { vec : Vec, width : Float, height : Float, font : Float }
+    , centerRowOrigin : Point
+    , deckPos : Props
+    , discardPilePos : Props
+    }
+
+
 empty : Vec -> CardsModel
-empty viewportSize =
+empty _ =
     CardsModel
         { cards = []
         , visuals = []
-        , viewportInfo = viewportInfoFor viewportSize
         , cardIdGen = 0
         }
-
 
 
 subscriptions_ : CardsModel -> (Float -> msg) -> Sub msg
@@ -87,110 +84,8 @@ subscriptions_ (CardsModel { visuals }) gotFrame_ =
         Sub.none
 
 
-updateViewport : Vec -> CardsModel -> CardsModel
-updateViewport viewportSize (CardsModel details) =
-    let
-        viewportInfo =
-            viewportInfoFor viewportSize
-
-        withUpdatedViewportInfo =
-            updateAni viewportInfo details.cards details.visuals
-    in
-    CardsModel
-        { details
-            | viewportInfo = viewportInfo
-            , visuals = withUpdatedViewportInfo
-        }
-
-
-inlineCSS : CardsModel -> Html msg
-inlineCSS (CardsModel { viewportInfo }) =
-    let
-        inlineRawCss =
-            String.join "\n" <|
-                [ ".card, .stack, .stack::after {"
-                , " width: " ++ px viewportInfo.cardSize.width ++ ";"
-                , " height: " ++ px viewportInfo.cardSize.height ++ ";"
-                , " font-size: " ++ px viewportInfo.cardSize.font ++ ""
-                , "}"
-                ]
-    in
-    node "style" [] [ text <| inlineRawCss ]
-
-
-centerRowCardGutterFactor =
-    1.15
-
-
-viewportInfoFor : Vec -> ViewportInfo
-viewportInfoFor size =
-    let
-        ( width, height ) =
-            Vector2d.toTuple Pixels.inPixels size
-
-        cardHeight =
-            height / 4
-
-        cardWidth =
-            cardHeight * 0.7
-
-        centerRowWidth =
-            5 * centerRowCardGutterFactor * cardWidth
-
-        centerRowX =
-            (width * 0.5) - (centerRowWidth * 0.5)
-
-        centerRowY =
-            (height * 0.5) - (cardHeight * (centerRowCardGutterFactor + 0.25))
-
-        deckPosX =
-            (width * 0.5) - (centerRowCardGutterFactor * cardWidth)
-
-        deckPosY =
-            centerRowY + (centerRowCardGutterFactor * cardHeight)
-
-        deckPos : Props
-        deckPos =
-            { pos = point deckPosX deckPosY
-            , degrees = 0
-            , opacity = 1.0
-            , flip = 180
-            }
-
-        discardPilePos =
-            { pos = point (deckPosX + (centerRowCardGutterFactor * cardWidth)) deckPosY
-            , degrees = 0
-            , opacity = 1.0
-            , flip = 0
-            }
-
-        handOriginX =
-            width * 0.5
-
-        handOriginY =
-            height - cardHeight
-    in
-    { size = size
-    , handOrigin = point handOriginX handOriginY
-    , cardSize =
-        { vec = vec cardWidth cardHeight
-        , width = cardWidth
-        , height = cardHeight
-        , font = cardHeight * 0.1
-        }
-    , centerRowOrigin = point centerRowX centerRowY
-    , deckPos = deckPos
-    , discardPilePos = discardPilePos
-    }
-
-
-centerRowSpot : ViewportInfo -> Int -> Point
-centerRowSpot { centerRowOrigin, cardSize } i =
-    move (vec (toFloat i * centerRowCardGutterFactor * cardSize.width) 0) centerRowOrigin
-
-
-draggedOver : Point -> CardsModel -> Maybe CardId
-draggedOver pointerPos (CardsModel { viewportInfo, visuals }) =
+draggedOver : Point -> ViewportInfo -> CardsModel -> Maybe CardId
+draggedOver pointerPos viewportInfo (CardsModel { visuals }) =
     let
         isInside ( _, a ) =
             case a of
@@ -210,27 +105,6 @@ draggedOver pointerPos (CardsModel { viewportInfo, visuals }) =
     Maybe.map (\( c, _ ) -> c.id) <| List.head <| List.filter isInside <| visuals
 
 
-deckAttrs : CardsModel -> CardAniAttrs msg
-deckAttrs (CardsModel { viewportInfo }) =
-    interpolate (Settled viewportInfo.deckPos)
-
-
-discardPileAttrs : CardsModel -> Int -> List (Attribute msg)
-discardPileAttrs (CardsModel { viewportInfo }) n =
-    let
-        pos =
-            move (times (toFloat n) (vec 3 3)) viewportInfo.discardPilePos.pos
-
-        props =
-            { pos = pos
-            , degrees = 0
-            , flip = 180
-            , opacity = 1.0
-            }
-    in
-    Tuple.first <| cssTransforms props
-
-
 addCards : List ( Location, CardContent ) -> CardsModel -> CardsModel
 addCards newCards model =
     let
@@ -241,12 +115,14 @@ addCards newCards model =
     List.foldr addCard__ model newCards
 
 
-addCard_ : Location -> CardContent -> CardsModel -> ( CardsModel, CardId )
-addCard_ location content  model =
-  let
-    (model_, cardId) = addCardNoAni (location, content) model
-  in
-    (updateAni_ model_, cardId)
+addCard_ : CardPositions -> Location -> CardContent -> CardsModel -> ( CardsModel, CardId )
+addCard_ cardPositions location content model =
+    let
+        ( model_, cardId ) =
+            addCardNoAni ( location, content ) model
+    in
+    ( updateAni cardPositions model_, cardId )
+
 
 addCardNoAni : ( Location, CardContent ) -> CardsModel -> ( CardsModel, CardId )
 addCardNoAni ( location, content ) (CardsModel ({ cards, cardIdGen } as rest)) =
@@ -266,10 +142,10 @@ addCardNoAni ( location, content ) (CardsModel ({ cards, cardIdGen } as rest)) =
     )
 
 
-removeCard : CardId -> CardsModel -> ( Maybe ( Card, Point ), CardsModel )
-removeCard cardId ((CardsModel ({ cards, visuals, viewportInfo } as rest)) as model) =
+removeCard : CardPositions -> CardId -> CardsModel -> ( Maybe ( Card, Point ), CardsModel )
+removeCard cardPositions cardId ((CardsModel ({ cards, visuals } as rest)) as model) =
     let
-        ( extracted_cards, cards_ ) =
+        ( extracted_cards, _ ) =
             List.partition ((==) cardId << .id) cards
 
         visual =
@@ -290,15 +166,16 @@ removeCard cardId ((CardsModel ({ cards, visuals, viewportInfo } as rest)) as mo
         ( Just card, Just p ) ->
             ( Just ( card, p )
             , CardsModel
-                { rest | cards = cards_, visuals = updateAni viewportInfo cards_ visuals }
+                { rest | cards = cards }
+                |> updateAni cardPositions
             )
 
         _ ->
             ( Nothing, model )
 
 
-moveCardTo : CardsModel -> CardId -> Location -> CardsModel
-moveCardTo (CardsModel ({ cards, visuals, viewportInfo } as rest)) cardId location =
+moveCardTo : CardPositions -> CardsModel -> CardId -> Location -> CardsModel
+moveCardTo cardPositions (CardsModel ({ cards } as rest)) cardId location =
     let
         updateLocation card =
             if card.id == cardId then
@@ -311,10 +188,8 @@ moveCardTo (CardsModel ({ cards, visuals, viewportInfo } as rest)) cardId locati
             List.map updateLocation cards
     in
     CardsModel
-        { rest
-            | cards = cards_
-            , visuals = updateAni viewportInfo cards_ visuals
-        }
+        { rest | cards = cards_ }
+        |> updateAni cardPositions
 
 
 fold : (Card -> b -> b) -> b -> CardsModel -> b
@@ -365,43 +240,33 @@ type alias Props =
 type alias Visuals =
     List ( Card, Animating )
 
-updateAni_ : CardsModel -> CardsModel
-updateAni_ (CardsModel details) =
+
+type alias CardPositions =
+    CardsModel -> Location -> Props
+
+
+updateAni : CardPositions -> CardsModel -> CardsModel
+updateAni cardPositions ((CardsModel details) as model) =
     let
+        screenPos =
+            cardPositions model
+
         updatedExisting =
-            List.map (updateAniFor details.viewportInfo details.cards) details.visuals
+            List.map (updateAniFor screenPos details.cards) details.visuals
 
         newCards =
             findNew details.cards details.visuals
 
         newPos card =
-            ( card, Settled <| screenPos details.viewportInfo details.cards card.location )
+            ( card, Settled <| screenPos card.location )
 
         newAnis =
             List.map newPos newCards
-        visuals = 
-          List.filter (not << isVanished) <| updatedExisting ++ newAnis
+
+        visuals =
+            List.filter (not << isVanished) <| updatedExisting ++ newAnis
     in
-      CardsModel { details | visuals = visuals }
-
-
-
-updateAni : ViewportInfo -> List Card -> Visuals -> Visuals
-updateAni viewportInfo cards visuals =
-    let
-        updatedExisting =
-            List.map (updateAniFor viewportInfo cards) visuals
-
-        newCards =
-            findNew cards visuals
-
-        newPos card =
-            ( card, Settled <| screenPos viewportInfo cards card.location )
-
-        newAnis =
-            List.map newPos newCards
-    in
-    List.filter (not << isVanished) <| updatedExisting ++ newAnis
+    CardsModel { details | visuals = visuals }
 
 
 isVanished : ( Card, Animating ) -> Bool
@@ -431,8 +296,12 @@ hasSameIdAs { id } card =
     id == card.id
 
 
-updateAniFor : ViewportInfo -> List Card -> ( Card, Animating ) -> ( Card, Animating )
-updateAniFor viewportInfo cards ( card, ani ) =
+type alias ScreenPos =
+    Location -> Props
+
+
+updateAniFor : ScreenPos -> List Card -> ( Card, Animating ) -> ( Card, Animating )
+updateAniFor screenPos cards ( card, ani ) =
     let
         target =
             List.head <| List.filter (hasSameIdAs card) cards
@@ -442,7 +311,7 @@ updateAniFor viewportInfo cards ( card, ani ) =
             if targetCard.location == card.location then
                 let
                     expectedPos =
-                        screenPos viewportInfo cards card.location
+                        screenPos card.location
                 in
                 case ani of
                     Vanished ->
@@ -478,7 +347,7 @@ updateAniFor viewportInfo cards ( card, ani ) =
 
             else
                 ( targetCard
-                , moveTo viewportInfo cards ani targetCard.location
+                , moveTo screenPos cards ani targetCard.location
                 )
 
         Nothing ->
@@ -542,21 +411,21 @@ revealContent (CardsModel ({ cards, visuals } as details)) cardId content =
         }
 
 
-moveTo : ViewportInfo -> List Card -> Animating -> Location -> Animating
-moveTo viewportInfo cards ani location =
+moveTo : ScreenPos -> List Card -> Animating -> Location -> Animating
+moveTo screenPos _ ani location =
     case ani of
         Animation speed from to t ->
             let
                 from_ =
                     interpolate_ from to t
             in
-            Animation speed from_ (screenPos viewportInfo cards location) 0
+            Animation speed from_ (screenPos location) 0
 
         Settled from ->
-            Animation cardMoveSpeed from (screenPos viewportInfo cards location) 0
+            Animation cardMoveSpeed from (screenPos location) 0
 
         Vanished ->
-            Animation cardMoveSpeed viewportInfo.deckPos (screenPos viewportInfo cards location) 0
+            Animation cardMoveSpeed (screenPos Deck) (screenPos location) 0
 
 
 isInMyHand : Card -> Bool
@@ -632,9 +501,10 @@ isNumberCard { content } =
             False
 
 
-myHandCards : List Card -> List Card
-myHandCards cards =
+myHandCards : CardsModel -> List ( CardId, Location )
+myHandCards (CardsModel { cards }) =
     List.filter isInMyHand cards
+        |> List.map (\c -> ( c.id, c.location ))
 
 
 isInOpponentsHand : OpponentId -> Card -> Bool
@@ -650,6 +520,12 @@ isInOpponentsHand opId { location } =
 inOpponentsHandCards : OpponentId -> List Card -> List Card
 inOpponentsHandCards opponentId cards =
     List.filter (isInOpponentsHand opponentId) cards
+
+
+inOpponentsHandCards_ : OpponentId -> CardsModel -> List ( CardId, Location )
+inOpponentsHandCards_ opponentId (CardsModel { cards }) =
+    List.filter (isInOpponentsHand opponentId) cards
+        |> List.map (\c -> ( c.id, c.location ))
 
 
 numberCenterCards : Card -> Bool
@@ -685,134 +561,6 @@ locationOf (CardsModel { cards }) cardId =
 discardPileWiggle : List Float
 discardPileWiggle =
     PseudoRandom.floatSequence 100 234 ( 0, 10 )
-
-
-screenPos : ViewportInfo -> List Card -> Location -> Props
-screenPos viewportInfo cards loc =
-    case loc of
-        Deck ->
-            viewportInfo.deckPos
-
-        DiscardPile pos ->
-            let
-                default =
-                    viewportInfo.discardPilePos
-            in
-            { default
-                | degrees = Maybe.withDefault 0 <| List.head <| List.drop pos discardPileWiggle
-            }
-
-        MyHand p ->
-            let
-                handCardCount =
-                    List.length <| myHandCards cards
-
-                degreePerCard =
-                    maxSpread / toFloat handCardCount
-
-                totalWidth =
-                    times (toFloat handCardCount) offsetPerCard
-
-                left =
-                    move (times -0.5 totalWidth) viewportInfo.handOrigin
-            in
-            { pos = move (times (toFloat p) offsetPerCard) left
-            , opacity = 1.0
-            , degrees = startSpread + degreePerCard * toFloat p
-            , flip = 0
-            }
-
-        TheirHand opponentId p ->
-            case opponentId of
-                1 ->
-                    let
-                        handCardCount =
-                            List.length <| inOpponentsHandCards opponentId cards
-
-                        degreePerCard =
-                            maxSpread / toFloat handCardCount
-
-                        totalHeight =
-                            times (toFloat handCardCount) offsetPerCardV
-
-                        ( _, viewportHeight ) =
-                            Vector2d.toTuple Pixels.inPixels viewportInfo.size
-
-                        top =
-                            move (times -0.5 totalHeight) (point (viewportInfo.cardSize.width * -0.5) (viewportHeight * 0.5))
-                    in
-                    { pos = move (times (toFloat p) offsetPerCardV) top
-                    , opacity = 1.0
-                    , degrees = -90 + (startSpread + degreePerCard * toFloat p)
-                    , flip = 180
-                    }
-
-                2 ->
-                    let
-                        handCardCount =
-                            List.length <| inOpponentsHandCards opponentId cards
-
-                        degreePerCard =
-                            maxSpread / toFloat handCardCount
-
-                        totalWidth =
-                            times (toFloat handCardCount) offsetPerCard
-
-                        { x } =
-                            toPixels viewportInfo.handOrigin
-
-                        left =
-                            move (times -0.5 totalWidth) (point x (viewportInfo.cardSize.height * -0.5))
-                    in
-                    { pos = move (times (toFloat p) offsetPerCard) left
-                    , opacity = 1.0
-                    , degrees = -startSpread - degreePerCard * toFloat p
-                    , flip = 180
-                    }
-
-                _ ->
-                    let
-                        handCardCount =
-                            List.length <| myHandCards cards
-
-                        degreePerCard =
-                            maxSpread / toFloat handCardCount
-
-                        totalWidth =
-                            times (toFloat handCardCount) offsetPerCard
-
-                        { x } =
-                            toPixels viewportInfo.handOrigin
-
-                        left =
-                            move (times -0.5 totalWidth) (point x (viewportInfo.cardSize.height * -0.5))
-                    in
-                    { pos = move (times (toFloat p) offsetPerCard) left
-                    , opacity = 1.0
-                    , degrees = -startSpread - degreePerCard * toFloat p
-                    , flip = 180
-                    }
-
-        InFlight x y ->
-            { pos = point x y
-            , opacity = 1.0
-            , degrees = 10
-            , flip = 180
-            }
-
-        InFlightOpen x y ->
-            { pos = point x y
-            , opacity = 1.0
-            , degrees = 10
-            , flip = 0
-            }
-
-        CenterRow i ->
-            { pos = centerRowSpot viewportInfo i
-            , opacity = 1.0
-            , degrees = 0
-            , flip = 0
-            }
 
 
 type alias CardId =
@@ -961,8 +709,8 @@ lastHandId { location } p =
             p
 
 
-consolidateHandCards : CardsModel -> CardsModel
-consolidateHandCards (CardsModel { cards, visuals, viewportInfo, cardIdGen }) =
+consolidateHandCards : CardPositions -> CardsModel -> CardsModel
+consolidateHandCards cardPositions (CardsModel ({ cards } as details)) =
     let
         ( handCards, otherCards ) =
             List.partition isInMyHand cards
@@ -989,11 +737,10 @@ consolidateHandCards (CardsModel { cards, visuals, viewportInfo, cardIdGen }) =
             otherCards ++ List.map2 resetPosition orderedByPos properPositions
     in
     CardsModel
-        { cards = cards_
-        , visuals = updateAni viewportInfo cards_ visuals
-        , viewportInfo = viewportInfo
-        , cardIdGen = cardIdGen
+        { details
+            | cards = cards_
         }
+        |> updateAni cardPositions
 
 
 gotFrame : Float -> CardsModel -> CardsModel
