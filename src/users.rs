@@ -46,7 +46,7 @@ pub struct PersistedPasskey {
 
 impl Users {
     pub fn new() -> Users {
-        let salt = SaltString::generate(&mut OsRng);
+        let salt = SaltString::from_b64("MTIzNDU2Nzg5MA").unwrap();
         Users {
             name_to_id: HashMap::new(),
             keys: HashMap::new(),
