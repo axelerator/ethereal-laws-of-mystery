@@ -3,7 +3,7 @@ module Cards exposing (..)
 import Animation exposing (Animation)
 import Browser.Events exposing (onAnimationFrameDelta)
 import Ease exposing (outCubic)
-import Hades exposing (CardContent(..), Location(..))
+import Hades exposing (CardContent(..), Location)
 import Html exposing (Attribute, Html, p)
 import Html.Attributes exposing (id, style)
 import Pixels
@@ -426,90 +426,6 @@ moveTo screenPos _ ani location =
             Animation cardMoveSpeed (screenPos location) (screenPos location) 0
 
 
-isOnDiscardPile : Card -> Bool
-isOnDiscardPile { location } =
-    case location of
-        DiscardPile _ ->
-            True
-
-        _ ->
-            False
-
-
-isInCenterRow : Card -> Bool
-isInCenterRow { location } =
-    case location of
-        CenterRow _ ->
-            True
-
-        _ ->
-            False
-
-
-isOperandCard : Card -> Bool
-isOperandCard { content } =
-    case content of
-        OperatorCard _ ->
-            True
-
-        _ ->
-            False
-
-
-isSwapCard : Card -> Bool
-isSwapCard { content } =
-    case content of
-        SwapOperators ->
-            True
-
-        _ ->
-            False
-
-
-isNumberCard : Card -> Bool
-isNumberCard { content } =
-    case content of
-        NumberCard _ ->
-            True
-
-        _ ->
-            False
-
-
-isInOpponentsHand : OpponentId -> Card -> Bool
-isInOpponentsHand opId { location } =
-    case location of
-        TheirHand id _ ->
-            id == opId
-
-        _ ->
-            False
-
-
-inOpponentsHandCards : OpponentId -> List Card -> List Card
-inOpponentsHandCards opponentId cards =
-    List.filter (isInOpponentsHand opponentId) cards
-
-
-inOpponentsHandCards_ : OpponentId -> CardsModel -> List ( CardId, Location )
-inOpponentsHandCards_ opponentId (CardsModel { cards }) =
-    List.filter (isInOpponentsHand opponentId) cards
-        |> List.map (\c -> ( c.id, c.location ))
-
-
-numberCenterCards : Card -> Bool
-numberCenterCards c =
-    isInCenterRow c && isNumberCard c
-
-
-operatorCenterCards : Card -> Bool
-operatorCenterCards c =
-    isInCenterRow c && isOperandCard c
-
-
-swapCenterCards : Card -> Bool
-swapCenterCards c =
-    isInCenterRow c && isSwapCard c
 
 
 getCards : CardsModel -> List Card

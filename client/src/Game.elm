@@ -21,20 +21,15 @@ import Cards
         , discardPileWiggle
         , draggedOver
         , empty
-        , fold
         , idOf
         , idsOf
-        , inOpponentsHandCards_
         , interpolate
-        , isOnDiscardPile
         , locationOf
         , maxSpread
         , move
         , moveCardTo
-        , numberCenterCards
         , offsetPerCard
         , offsetPerCardV
-        , operatorCenterCards
         , point
         , px
         , revealContent
@@ -900,7 +895,7 @@ screenPos viewportInfo cardsModel loc =
                 1 ->
                     let
                         handCardCount =
-                            List.length <| inOpponentsHandCards_ opponentId cardsModel
+                            List.length <| Cards.filter (isInOpponentsHand opponentId) cardsModel
 
                         degreePerCard =
                             maxSpread / toFloat handCardCount
@@ -923,7 +918,7 @@ screenPos viewportInfo cardsModel loc =
                 2 ->
                     let
                         handCardCount =
-                            List.length <| inOpponentsHandCards_ opponentId cardsModel
+                            List.length <| Cards.filter (isInOpponentsHand opponentId) cardsModel
 
                         degreePerCard =
                             maxSpread / toFloat handCardCount
@@ -1084,3 +1079,83 @@ consolidateHandCards cpos cards =
                 |> List.indexedMap withPosition
     in
     updateCards cpos handCards cards
+
+
+isOnDiscardPile : Card -> Bool
+isOnDiscardPile { location } =
+    case location of
+        DiscardPile _ ->
+            True
+
+        _ ->
+            False
+
+
+isInCenterRow : Card -> Bool
+isInCenterRow { location } =
+    case location of
+        CenterRow _ ->
+            True
+
+        _ ->
+            False
+
+
+isOperandCard : Card -> Bool
+isOperandCard { content } =
+    case content of
+        OperatorCard _ ->
+            True
+
+        _ ->
+            False
+
+
+isSwapCard : Card -> Bool
+isSwapCard { content } =
+    case content of
+        SwapOperators ->
+            True
+
+        _ ->
+            False
+
+
+isNumberCard : Card -> Bool
+isNumberCard { content } =
+    case content of
+        NumberCard _ ->
+            True
+
+        _ ->
+            False
+
+
+isInOpponentsHand : OpponentId -> Card -> Bool
+isInOpponentsHand opId { location } =
+    case location of
+        TheirHand id _ ->
+            id == opId
+
+        _ ->
+            False
+
+
+inOpponentsHandCards : OpponentId -> List Card -> List Card
+inOpponentsHandCards opponentId cards =
+    List.filter (isInOpponentsHand opponentId) cards
+
+
+numberCenterCards : Card -> Bool
+numberCenterCards c =
+    isInCenterRow c && isNumberCard c
+
+
+operatorCenterCards : Card -> Bool
+operatorCenterCards c =
+    isInCenterRow c && isOperandCard c
+
+
+swapCenterCards : Card -> Bool
+swapCenterCards c =
+    isInCenterRow c && isSwapCard c
