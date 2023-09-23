@@ -6,8 +6,6 @@ import Ease exposing (outCubic)
 import Hades exposing (CardContent(..), Location(..))
 import Html exposing (Attribute, Html, p)
 import Html.Attributes exposing (id, style)
-import List exposing (length, range)
-import Maybe.Extra exposing (values)
 import Pixels
 import Point2d exposing (toPixels)
 import PseudoRandom
@@ -425,17 +423,7 @@ moveTo screenPos _ ani location =
             Animation cardMoveSpeed from (screenPos location) 0
 
         Vanished ->
-            Animation cardMoveSpeed (screenPos Deck) (screenPos location) 0
-
-
-isInMyHand : Card -> Bool
-isInMyHand { location } =
-    case location of
-        MyHand _ ->
-            True
-
-        _ ->
-            False
+            Animation cardMoveSpeed (screenPos location) (screenPos location) 0
 
 
 isOnDiscardPile : Card -> Bool
@@ -452,19 +440,6 @@ isInCenterRow : Card -> Bool
 isInCenterRow { location } =
     case location of
         CenterRow _ ->
-            True
-
-        _ ->
-            False
-
-
-isInInflight : Card -> Bool
-isInInflight { location } =
-    case location of
-        InFlightOpen _ _ ->
-            True
-
-        InFlight _ _ ->
             True
 
         _ ->
@@ -501,12 +476,6 @@ isNumberCard { content } =
             False
 
 
-myHandCards : CardsModel -> List ( CardId, Location )
-myHandCards (CardsModel { cards }) =
-    List.filter isInMyHand cards
-        |> List.map (\c -> ( c.id, c.location ))
-
-
 isInOpponentsHand : OpponentId -> Card -> Bool
 isInOpponentsHand opId { location } =
     case location of
@@ -541,6 +510,35 @@ operatorCenterCards c =
 swapCenterCards : Card -> Bool
 swapCenterCards c =
     isInCenterRow c && isSwapCard c
+
+
+getCards : CardsModel -> List Card
+getCards (CardsModel { cards }) =
+    cards
+
+
+filter : (Card -> Bool) -> CardsModel -> List Card
+filter predicate (CardsModel { cards }) =
+    List.filter predicate cards
+
+
+updateCards : CardPositions -> List Card -> CardsModel -> CardsModel
+updateCards cardPositions updatedCards model =
+    List.foldr updateCard_ model updatedCards
+        |> updateAni cardPositions
+
+
+updateCard_ : Card -> CardsModel -> CardsModel
+updateCard_ card (CardsModel details) =
+    let
+        f c =
+            if c.id == card.id then
+                card
+
+            else
+                c
+    in
+    CardsModel { details | cards = List.map f details.cards }
 
 
 idsOf : (Card -> Bool) -> CardsModel -> List CardId
@@ -693,54 +691,6 @@ offsetPerCard =
 
 offsetPerCardV =
     vec 0 50
-
-
-lastHandId : Card -> Int -> Int
-lastHandId { location } p =
-    case location of
-        MyHand p_ ->
-            if p > p_ then
-                p
-
-            else
-                p_
-
-        _ ->
-            p
-
-
-consolidateHandCards : CardPositions -> CardsModel -> CardsModel
-consolidateHandCards cardPositions (CardsModel ({ cards } as details)) =
-    let
-        ( handCards, otherCards ) =
-            List.partition isInMyHand cards
-
-        getPos c =
-            case c.location of
-                MyHand p ->
-                    Just ( p, c )
-
-                _ ->
-                    Nothing
-
-        orderedByPos : List ( Int, Card )
-        orderedByPos =
-            List.sortBy Tuple.first <| values <| List.map getPos handCards
-
-        properPositions =
-            range 0 <| length handCards - 1
-
-        resetPosition ( _, c ) p =
-            { c | location = MyHand p }
-
-        cards_ =
-            otherCards ++ List.map2 resetPosition orderedByPos properPositions
-    in
-    CardsModel
-        { details
-            | cards = cards_
-        }
-        |> updateAni cardPositions
 
 
 gotFrame : Float -> CardsModel -> CardsModel

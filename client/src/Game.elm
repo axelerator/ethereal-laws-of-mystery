@@ -9,6 +9,7 @@ import Cards
         , Card
         , CardAniAttrs
         , CardId
+        , CardPositions
         , CardsModel
         , OpponentId
         , Point
@@ -17,7 +18,6 @@ import Cards
         , ViewportInfo
         , addCard_
         , addCards
-        , consolidateHandCards
         , discardPileWiggle
         , draggedOver
         , empty
@@ -26,14 +26,11 @@ import Cards
         , idsOf
         , inOpponentsHandCards_
         , interpolate
-        , isInInflight
         , isOnDiscardPile
-        , lastHandId
         , locationOf
         , maxSpread
         , move
         , moveCardTo
-        , myHandCards
         , numberCenterCards
         , offsetPerCard
         , offsetPerCardV
@@ -44,6 +41,7 @@ import Cards
         , startSpread
         , times
         , updateAni
+        , updateCards
         , vec
         )
 import Draggable
@@ -240,7 +238,7 @@ drawFromDeck model content =
             addCard_ cardPos Deck content model.cards
 
         nextHandPos =
-            1 + fold lastHandId -1 withNewCard
+            List.length <| Cards.filter isInMyHand model.cards
     in
     { model
         | cards = moveCardTo cardPos withNewCard newId (MyHand nextHandPos)
@@ -254,19 +252,35 @@ drawFromDeck model content =
     }
 
 
+isInInflight : Card -> Bool
+isInInflight { location } =
+    case location of
+        InFlight _ _ ->
+            True
+
+        InFlightOpen _ _ ->
+            True
+
+        _ ->
+            False
+
+
 placeInFlightCard : Model -> Location -> Model
 placeInFlightCard model targetLocation =
     let
         inFlightCard =
-            List.head <| idsOf isInInflight model.cards
+            List.head <| Cards.filter isInInflight model.cards
 
         cardOnTarget =
             List.head <| idsOf (\c -> c.location == targetLocation) model.cards
 
         cards =
             case ( inFlightCard, cardOnTarget ) of
-                ( Just fromId, Just toId ) ->
+                ( Just inFlightCard_, Just toId ) ->
                     let
+                        fromId =
+                            inFlightCard_.id
+
                         lastDiscardedPos =
                             List.length <| idsOf isOnDiscardPile model.cards
 
@@ -864,7 +878,7 @@ screenPos viewportInfo cardsModel loc =
         MyHand p ->
             let
                 handCardCount =
-                    List.length <| myHandCards cardsModel
+                    List.length <| Cards.filter isInMyHand cardsModel
 
                 degreePerCard =
                     maxSpread / toFloat handCardCount
@@ -1036,9 +1050,37 @@ deckAttrs viewportInfo =
     interpolate (Settled viewportInfo.deckPos)
 
 
-
-
-
 centerRowSpot : ViewportInfo -> Int -> Point
 centerRowSpot { centerRowOrigin, cardSize } i =
     move (vec (toFloat i * centerRowCardGutterFactor * cardSize.width) 0) centerRowOrigin
+
+
+isInMyHand c =
+    case c.location of
+        MyHand _ ->
+            True
+
+        _ ->
+            False
+
+
+consolidateHandCards : CardPositions -> CardsModel -> CardsModel
+consolidateHandCards cpos cards =
+    let
+        handPos c =
+            case c.location of
+                MyHand i ->
+                    i
+
+                _ ->
+                    -1
+
+        withPosition i card =
+            { card | location = MyHand i }
+
+        handCards =
+            Cards.filter isInMyHand cards
+                |> List.sortBy handPos
+                |> List.indexedMap withPosition
+    in
+    updateCards cpos handCards cards
