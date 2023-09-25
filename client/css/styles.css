@@ -128,7 +128,6 @@ body {
   transform: rotateZ(var(--wiggle));
 }
 
-
 .deck-stack .stack::after {
   content: '.';
   display: block;
@@ -141,6 +140,40 @@ body {
   border-radius: var(--border-radius);
   z-index: 5;
 }
+
+.card.menu .back {
+  background-image: url("/assets/images/cardbg.jpg");
+  background-size: cover;
+}
+.card.menu .front {
+  background-image: url("/assets/images/menu_card_bg.png");
+  background-size: cover;
+}
+
+
+.card.menu:hover  {
+  z-index: 300;
+}
+.card.menu .front:hover {
+  box-shadow: 0px 0px 12px 5px rgba(225, 172, 15, 1.0);
+}
+
+.card.menu .big {
+  padding-top: 40%;
+  text-align: center;
+  left: 0;
+  right: 0;
+
+}
+
+.card.menu .mini {
+  top: 0.2em;
+  left: 0.2em;
+  font-size: 0.7em;
+  line-height: 0.5em;
+  text-align: left;
+}
+
 
 .card .back {
   background-image: url("/assets/images/cardbg.jpg");
@@ -176,9 +209,9 @@ body {
   top: 0;
   left: 0.2em;
   color: #335;
-  font-size: 7em;
   line-height: 1.3em;
   text-shadow: #DD9 1px 0 15px;
+  text-align: center;
 }
 
 .card .mini {
@@ -187,7 +220,7 @@ body {
   right: 0.3em;
   color: #444;
   text-shadow: #DD9 1px 0 15px;
-  font-size: 2em;
+  font-size: 0.2em;
 }
 
 .cards:not(.game-over) .card.hand:hover {
@@ -206,10 +239,10 @@ body {
   box-shadow: 0px 0px 12px 5px rgba(50, 75, 125, 1.0);
 }
 
-.turn-0.cards:not(.game-over) .player-0,
-.turn-1.cards:not(.game-over) .player-1,
-.turn-2.cards:not(.game-over) .player-2,
-.turn-3.cards:not(.game-over) .player-3 {
+.turn-0.cards:not(.game-over) .player-0 .front,
+.turn-1.cards:not(.game-over) .player-1 .front,
+.turn-2.cards:not(.game-over) .player-2 .front,
+.turn-3.cards:not(.game-over) .player-3 .front {
   box-shadow: 0px 0px 12px 5px rgba(25, 222, 125, 1.0);
 }
 

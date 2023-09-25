@@ -66,9 +66,12 @@ globalActions =
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case ( msg, model ) of
-        ( FromPort _, OnLogin model_ ) ->
-            ( OnHome Home.init
-            , Cmd.none
+        (FromPort _, OnLogin _) ->
+          let
+             (model__, cmd) =  Home.init
+          in
+            ( OnHome model__
+            , Cmd.map ForHome cmd
             )
 
         ( FromPort ( "event", eventData ), OnGame model_ ) ->
@@ -175,12 +178,17 @@ update msg model =
                 cmd =
                     Cmd.map ForGame cmd_
             in
-            if Game.returnToLobby msg_ then
-                ( OnHome Home.init
-                , Cmd.none
-                )
+            case Game.returnToLobby model_ msg_ of
+              Just (width, height) ->
+                let
+                    (m, cmd__) = Home.withOpenMenu width height
+                in
+                
+                  ( OnHome m
+                  , Cmd.map ForHome cmd__
+                  )
 
-            else
+              _ ->
                 ( OnGame model__
                 , cmd
                 )
@@ -208,6 +216,8 @@ subscriptions model =
         , case model of
             OnGame model_ ->
                 Sub.map ForGame <| Game.subscriptions model_
+            OnHome model_ ->
+                Sub.map ForHome <| Home.subscriptions model_
 
             _ ->
                 Sub.none

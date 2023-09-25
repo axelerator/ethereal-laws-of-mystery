@@ -3,7 +3,6 @@ module Cards exposing (..)
 import Animation exposing (Animation)
 import Browser.Events exposing (onAnimationFrameDelta)
 import Ease exposing (outCubic)
-import Hades exposing (CardContent(..), Location)
 import Html exposing (Attribute, Html, p)
 import Html.Attributes exposing (id, style)
 import Pixels
@@ -14,31 +13,42 @@ import String exposing (fromFloat)
 import Vector2d
 
 
+type CardId
+    = CardId Int
+
+
+type alias Card location cardContent =
+    { id : CardId
+    , location : location
+    , content : cardContent
+    }
+
+
 type Msg
     = Draw
     | Discard CardId
     | GotFrame Float
 
 
-type alias CardsModelDetails =
-    { visuals : Visuals
-    , cards : List Card
-    , cardIdGen : CardId
+type alias CardsModelDetails location cardContent =
+    { visuals : Visuals location cardContent
+    , cards : List (Card location cardContent)
+    , cardIdGen : Int
     }
 
 
-type CardsModel
-    = CardsModel CardsModelDetails
+type CardsModel location cardContent
+    = CardsModel (CardsModelDetails location cardContent)
 
 
 type alias OpponentId =
     Int
 
 
-type alias Model =
+type alias Model location cardContent =
     { count : Int
     , idGen : Int
-    , animatedCards : CardsModel
+    , animatedCards : CardsModel location cardContent
     }
 
 
@@ -52,8 +62,13 @@ type alias ViewportInfo =
     }
 
 
-empty : Vec -> CardsModel
-empty _ =
+isEmpty : CardsModel location cardContent -> Bool
+isEmpty (CardsModel { cards }) =
+    List.isEmpty cards
+
+
+empty : CardsModel location cardContent
+empty =
     CardsModel
         { cards = []
         , visuals = []
@@ -61,7 +76,7 @@ empty _ =
         }
 
 
-subscriptions_ : CardsModel -> (Float -> msg) -> Sub msg
+subscriptions_ : CardsModel location cardContent -> (Float -> msg) -> Sub msg
 subscriptions_ (CardsModel { visuals }) gotFrame_ =
     let
         isAnimating ( _, a ) =
@@ -82,8 +97,8 @@ subscriptions_ (CardsModel { visuals }) gotFrame_ =
         Sub.none
 
 
-draggedOver : Point -> ViewportInfo -> CardsModel -> Maybe CardId
-draggedOver pointerPos viewportInfo (CardsModel { visuals }) =
+insideOfCard : Point -> ViewportInfo -> CardsModel location cardContent -> Maybe CardId
+insideOfCard pointerPos viewportInfo (CardsModel { visuals }) =
     let
         isInside ( _, a ) =
             case a of
@@ -103,30 +118,52 @@ draggedOver pointerPos viewportInfo (CardsModel { visuals }) =
     Maybe.map (\( c, _ ) -> c.id) <| List.head <| List.filter isInside <| visuals
 
 
-addCards : List ( Location, CardContent ) -> CardsModel -> CardsModel
-addCards newCards model =
+addCards :
+    CardPositions location cardContent
+    -> List ( location, cardContent )
+    -> CardsModel location cardContent
+    -> ( CardsModel location cardContent, List (Card location cardContent) )
+addCards cps newCards model =
     let
-        addCard__ : ( Location, CardContent ) -> CardsModel -> CardsModel
-        addCard__ c m =
-            addCardNoAni c m |> Tuple.first
+        addCard__ c ( m, cards ) =
+            let
+                ( m_, cid ) =
+                    addCardNoAni c m
+            in
+            ( m_, cid :: cards )
+        (m__, cids) = List.foldr addCard__ ( model, [] ) newCards
+            
     in
-    List.foldr addCard__ model newCards
+      ( updateAni cps m__
+      , cids
+      )
 
 
-addCard_ : CardPositions -> Location -> CardContent -> CardsModel -> ( CardsModel, CardId )
-addCard_ cardPositions location content model =
+addCard :
+    CardPositions location cardContent
+    -> location
+    -> cardContent
+    -> CardsModel location cardContent
+    -> ( CardsModel location cardContent, Card location cardContent )
+addCard cardPositions location content model =
     let
-        ( model_, cardId ) =
+        ( model_, card ) =
             addCardNoAni ( location, content ) model
     in
-    ( updateAni cardPositions model_, cardId )
+    ( updateAni cardPositions model_, card )
 
 
-addCardNoAni : ( Location, CardContent ) -> CardsModel -> ( CardsModel, CardId )
+addCardNoAni :
+    ( location, cardContent )
+    -> CardsModel location cardContent
+    -> ( CardsModel location cardContent, Card location cardContent )
 addCardNoAni ( location, content ) (CardsModel ({ cards, cardIdGen } as rest)) =
     let
+        newId =
+            CardId cardIdGen
+
         newCard =
-            { id = cardIdGen
+            { id = newId
             , location = location
             , content = content
             }
@@ -136,11 +173,15 @@ addCardNoAni ( location, content ) (CardsModel ({ cards, cardIdGen } as rest)) =
     in
     ( CardsModel
         { rest | cards = withNewCard, cardIdGen = cardIdGen + 1 }
-    , cardIdGen
+    , newCard
     )
 
 
-removeCard : CardPositions -> CardId -> CardsModel -> ( Maybe ( Card, Point ), CardsModel )
+removeCard :
+    CardPositions location cardContent
+    -> CardId
+    -> CardsModel location cardContent
+    -> ( Maybe ( Card location cardContent, Point ), CardsModel location cardContent )
 removeCard cardPositions cardId ((CardsModel ({ cards, visuals } as rest)) as model) =
     let
         ( extracted_cards, _ ) =
@@ -172,10 +213,15 @@ removeCard cardPositions cardId ((CardsModel ({ cards, visuals } as rest)) as mo
             ( Nothing, model )
 
 
-moveCardTo : CardPositions -> CardsModel -> CardId -> Location -> CardsModel
+moveCardTo :
+    CardPositions location cardContent
+    -> CardsModel location cardContent
+    -> CardId
+    -> location
+    -> CardsModel location cardContent
 moveCardTo cardPositions (CardsModel ({ cards } as rest)) cardId location =
     let
-        updateLocation card =
+        updatelocation card =
             if card.id == cardId then
                 { card | location = location }
 
@@ -183,16 +229,11 @@ moveCardTo cardPositions (CardsModel ({ cards } as rest)) cardId location =
                 card
 
         cards_ =
-            List.map updateLocation cards
+            List.map updatelocation cards
     in
     CardsModel
         { rest | cards = cards_ }
         |> updateAni cardPositions
-
-
-fold : (Card -> b -> b) -> b -> CardsModel -> b
-fold f b (CardsModel { cards }) =
-    List.foldr f b cards
 
 
 type ScreenSpace
@@ -235,15 +276,18 @@ type alias Props =
     }
 
 
-type alias Visuals =
-    List ( Card, Animating )
+type alias Visuals location cardContent =
+    List ( Card location cardContent, Animating )
 
 
-type alias CardPositions =
-    CardsModel -> Location -> Props
+type alias CardPositions location cardContent =
+    CardsModel location cardContent -> location -> Props
 
 
-updateAni : CardPositions -> CardsModel -> CardsModel
+updateAni :
+    CardPositions location cardContent
+    -> CardsModel location cardContent
+    -> CardsModel location cardContent
 updateAni cardPositions ((CardsModel details) as model) =
     let
         screenPos =
@@ -267,7 +311,7 @@ updateAni cardPositions ((CardsModel details) as model) =
     CardsModel { details | visuals = visuals }
 
 
-isVanished : ( Card, Animating ) -> Bool
+isVanished : ( Card location cardContent, Animating ) -> Bool
 isVanished ( _, a ) =
     case a of
         Vanished ->
@@ -277,7 +321,7 @@ isVanished ( _, a ) =
             False
 
 
-findNew : List Card -> Visuals -> List Card
+findNew : List (Card location cardContent) -> Visuals location cardContent -> List (Card location cardContent)
 findNew cards visuals =
     let
         cardsInVisuals =
@@ -289,16 +333,20 @@ findNew cards visuals =
     List.filter isNew cards
 
 
-hasSameIdAs : Card -> Card -> Bool
+hasSameIdAs : Card location cardContent -> Card location cardContent -> Bool
 hasSameIdAs { id } card =
     id == card.id
 
 
-type alias ScreenPos =
-    Location -> Props
+type alias ScreenPos location =
+    location -> Props
 
 
-updateAniFor : ScreenPos -> List Card -> ( Card, Animating ) -> ( Card, Animating )
+updateAniFor :
+    ScreenPos location
+    -> List (Card location cardContent)
+    -> ( Card location cardContent, Animating )
+    -> ( Card location cardContent, Animating )
 updateAniFor screenPos cards ( card, ani ) =
     let
         target =
@@ -374,12 +422,12 @@ cardMoveSpeed =
     2.0
 
 
-contentOf : CardsModel -> CardId -> Maybe CardContent
+contentOf : CardsModel location cardContent -> CardId -> Maybe cardContent
 contentOf (CardsModel { cards }) cardId =
     Maybe.map .content <| List.head <| List.filter (\c -> c.id == cardId) cards
 
 
-revealContent : CardsModel -> CardId -> CardContent -> CardsModel
+revealContent : CardsModel location cardContent -> CardId -> cardContent -> CardsModel location cardContent
 revealContent (CardsModel ({ cards, visuals } as details)) cardId content =
     let
         updateCard c =
@@ -409,7 +457,7 @@ revealContent (CardsModel ({ cards, visuals } as details)) cardId content =
         }
 
 
-moveTo : ScreenPos -> List Card -> Animating -> Location -> Animating
+moveTo : ScreenPos location -> List (Card location cardContent) -> Animating -> location -> Animating
 moveTo screenPos _ ani location =
     case ani of
         Animation speed from to t ->
@@ -426,25 +474,23 @@ moveTo screenPos _ ani location =
             Animation cardMoveSpeed (screenPos location) (screenPos location) 0
 
 
-
-
-getCards : CardsModel -> List Card
+getCards : CardsModel location cardContent -> List (Card location cardContent)
 getCards (CardsModel { cards }) =
     cards
 
 
-filter : (Card -> Bool) -> CardsModel -> List Card
+filter : (Card location cardContent -> Bool) -> CardsModel location cardContent -> List (Card location cardContent)
 filter predicate (CardsModel { cards }) =
     List.filter predicate cards
 
 
-updateCards : CardPositions -> List Card -> CardsModel -> CardsModel
+updateCards : CardPositions location cardContent -> List (Card location cardContent) -> CardsModel location cardContent -> CardsModel location cardContent
 updateCards cardPositions updatedCards model =
     List.foldr updateCard_ model updatedCards
         |> updateAni cardPositions
 
 
-updateCard_ : Card -> CardsModel -> CardsModel
+updateCard_ : Card location cardContent -> CardsModel location cardContent -> CardsModel location cardContent
 updateCard_ card (CardsModel details) =
     let
         f c =
@@ -457,35 +503,19 @@ updateCard_ card (CardsModel details) =
     CardsModel { details | cards = List.map f details.cards }
 
 
-idsOf : (Card -> Bool) -> CardsModel -> List CardId
+idsOf : (Card location cardContent -> Bool) -> CardsModel location cardContent -> List CardId
 idsOf predicate (CardsModel { cards }) =
     List.map .id <| List.filter predicate cards
 
 
-idOf : Location -> CardsModel -> Maybe CardId
+idOf : location -> CardsModel location cardContent -> Maybe CardId
 idOf location cards =
     List.head <| idsOf (\c -> c.location == location) cards
 
 
-locationOf : CardsModel -> CardId -> Maybe Location
+locationOf : CardsModel location cardContent -> CardId -> Maybe location
 locationOf (CardsModel { cards }) cardId =
     Maybe.map .location <| List.head <| List.filter (\c -> c.id == cardId) cards
-
-
-discardPileWiggle : List Float
-discardPileWiggle =
-    PseudoRandom.floatSequence 100 234 ( 0, 10 )
-
-
-type alias CardId =
-    Int
-
-
-type alias Card =
-    { id : CardId
-    , location : Location
-    , content : CardContent
-    }
 
 
 type Animating
@@ -593,23 +623,7 @@ step delta a =
             Vanished
 
 
-maxSpread =
-    35
-
-
-startSpread =
-    maxSpread * -0.5
-
-
-offsetPerCard =
-    vec 50 0
-
-
-offsetPerCardV =
-    vec 0 50
-
-
-gotFrame : Float -> CardsModel -> CardsModel
+gotFrame : Float -> CardsModel location cardContent -> CardsModel location cardContent
 gotFrame delta (CardsModel model) =
     CardsModel
         { model
@@ -617,7 +631,7 @@ gotFrame delta (CardsModel model) =
         }
 
 
-animate : Float -> ( Card, Animating ) -> ( Card, Animating )
+animate : Float -> ( Card location cardContent, Animating ) -> ( Card location cardContent, Animating )
 animate delta ( c, a ) =
     ( c, step (delta * 0.001) a )
 
@@ -635,11 +649,17 @@ type alias CardAniAttrs msg =
     ( List (Attribute msg), List (Attribute msg) )
 
 
-viewAni : (Card -> CardAniAttrs msg -> Html msg) -> ( Card, Animating ) -> Html msg
+viewAni :
+    (Card location cardContent -> CardAniAttrs msg -> Html msg)
+    -> ( Card location cardContent, Animating )
+    -> Html msg
 viewAni viewCard ( { id, content } as card, a ) =
     viewCard card <| interpolate a
 
 
-viewAnis : CardsModel -> (Card -> CardAniAttrs msg -> Html msg) -> List (Html msg)
+viewAnis :
+    CardsModel location cardContent
+    -> (Card location cardContent -> CardAniAttrs msg -> Html msg)
+    -> List (Html msg)
 viewAnis (CardsModel { visuals }) viewCard =
     List.map (viewAni viewCard) visuals

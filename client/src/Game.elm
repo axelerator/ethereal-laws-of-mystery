@@ -6,34 +6,26 @@ import Browser.Events exposing (onResize)
 import Cards
     exposing
         ( Animating(..)
-        , Card
         , CardAniAttrs
         , CardId
-        , CardPositions
-        , CardsModel
         , OpponentId
         , Point
         , Props
         , Vec
         , ViewportInfo
-        , addCard_
+        , addCard
         , addCards
-        , discardPileWiggle
-        , draggedOver
         , empty
         , idOf
         , idsOf
+        , insideOfCard
         , interpolate
         , locationOf
-        , maxSpread
         , move
         , moveCardTo
-        , offsetPerCard
-        , offsetPerCardV
         , point
         , px
         , revealContent
-        , startSpread
         , times
         , updateAni
         , updateCards
@@ -76,7 +68,7 @@ type alias Model =
     { counter : Int
     , realmId : RealmId
     , cards : CardsModel
-    , draggedCard : Maybe ( Cards.Card, Point, Int )
+    , draggedCard : Maybe ( Card, Point, Int )
     , drag : Draggable.State DragId
     , highlightedCards : List ( CardId, Highlight )
     , viewportSize : Vec
@@ -96,6 +88,18 @@ type alias RelativeOpponent =
 type Highlight
     = DropZone Highlight
     | PotentialDrop
+
+
+type alias Card =
+    Cards.Card Location CardContent
+
+
+type alias CardsModel =
+    Cards.CardsModel Location CardContent
+
+
+type alias CardPositions =
+    Cards.CardPositions Location CardContent
 
 
 init__ : Vec -> GameInfo -> CardsModel
@@ -132,8 +136,11 @@ init__ viewportSize { center, hand, opponents, discardPile } =
 
         cards =
             List.concat [ centerCards, handCards, opponentCards, discardedCards ]
+
+        viewportInfo =
+            viewportInfoFor viewportSize
     in
-    addCards cards (empty viewportSize)
+    Tuple.first <| addCards (screenPos viewportInfo) cards empty
 
 
 init : RealmId -> GameInfo -> ( Model, Cmd Msg )
@@ -229,14 +236,14 @@ drawFromDeck model content =
         cardPos =
             cardPositions model
 
-        ( withNewCard, newId ) =
-            addCard_ cardPos Deck content model.cards
+        ( withNewCard, newCard ) =
+            addCard cardPos Deck content model.cards
 
         nextHandPos =
             List.length <| Cards.filter isInMyHand model.cards
     in
     { model
-        | cards = moveCardTo cardPos withNewCard newId (MyHand nextHandPos)
+        | cards = moveCardTo cardPos withNewCard newCard.id (MyHand nextHandPos)
         , pileSize = model.pileSize - 1
         , turn =
             if List.isEmpty model.opponents then
@@ -325,13 +332,17 @@ highlightAsDropZone highlightedCards cardId =
     List.map replaceHighlight <| removeHighlightFrom highlightedCards
 
 
-returnToLobby : Msg -> Bool
-returnToLobby msg =
-    msg == ReturnToLobby
+returnToLobby : Model -> Msg -> Maybe ( Float, Float )
+returnToLobby { viewportInfo } msg =
+    if msg == ReturnToLobby then
+        Just <| Vector2d.toTuple Pixels.inPixels viewportInfo.size
+
+    else
+        Nothing
 
 
 update : { a | webauthn : b } -> Msg -> Model -> ( Model, Cmd Msg )
-update {} msg model =
+update _ msg model =
     case msg of
         ReturnToLobby ->
             ( model
@@ -411,7 +422,7 @@ update {} msg model =
                     ( model, send model.realmId DrawFromPile )
 
                 ( Running, _ ) ->
-                    ( { model | fadingMsg = Just ( "It's not your turn yet!", 128000 ) }
+                    ( { model | fadingMsg = Just ( "It's not your turn yet!", 5000 ) }
                     , Cmd.none
                     )
 
@@ -464,11 +475,11 @@ update {} msg model =
                         { x, y } =
                             toPixels pos
 
-                        ( fromDrag, newId ) =
-                            addCard_ (cardPositions model) (InFlightOpen x y) card.content model.cards
+                        ( fromDrag, newCard ) =
+                            addCard (cardPositions model) (InFlightOpen x y) card.content model.cards
 
                         toHand =
-                            moveCardTo (cardPositions model) fromDrag newId (MyHand originalHandPos)
+                            moveCardTo (cardPositions model) fromDrag newCard.id (MyHand originalHandPos)
 
                         dropZoneCard ( id, hl ) =
                             case hl of
@@ -513,7 +524,7 @@ update {} msg model =
                             move (vec dx dy) pos
 
                         highlightedCards =
-                            case draggedOver newPos model.viewportInfo model.cards of
+                            case insideOfCard newPos model.viewportInfo model.cards of
                                 Just cardId ->
                                     highlightAsDropZone model.highlightedCards cardId
 
@@ -571,8 +582,8 @@ theyDraw model opponentId nextPlayer =
         content =
             NumberCard 1
 
-        ( withNewCard, newId ) =
-            addCard_ (cardPositions model) Deck content model.cards
+        ( withNewCard, newCard ) =
+            addCard (cardPositions model) Deck content model.cards
 
         nextHandPos =
             case List.head <| List.drop opponentId model.opponents of
@@ -583,7 +594,7 @@ theyDraw model opponentId nextPlayer =
                     0
     in
     { model
-        | cards = moveCardTo (cardPositions model) withNewCard newId (TheirHand opponentId nextHandPos)
+        | cards = moveCardTo (cardPositions model) withNewCard newCard.id (TheirHand opponentId nextHandPos)
         , turn = nextPlayer
     }
 
@@ -663,7 +674,7 @@ fadeMsgView mb =
             text ""
 
 
-draggedCardView : Maybe ( Cards.Card, Point, Int ) -> List (Html Msg)
+draggedCardView : Maybe ( Card, Point, Int ) -> List (Html Msg)
 draggedCardView tpl =
     case tpl of
         Just ( card, pos, _ ) ->
@@ -727,9 +738,62 @@ highlightClass hl =
         |> Maybe.withDefault ""
 
 
-cardView : Bool -> List ( CardId, Highlight ) -> Card -> CardAniAttrs Msg -> Html Msg
-cardView _ highlightedCards card ( aniAttrs, innerAttrs ) =
+zIndexFor : Location -> Int
+zIndexFor location =
+    case location of
+        Deck ->
+            10
+
+        MyHand i ->
+            200 - i
+
+        TheirHand _ i ->
+            200 - i
+
+        DiscardPile i ->
+            100 + i
+
+        InFlight _ _ ->
+            300
+
+        InFlightOpen _ _ ->
+            300
+
+        CenterRow _ ->
+            0
+
+
+cssClassFor : Location -> String
+cssClassFor location =
+    case location of
+        Deck ->
+            "deck"
+
+        MyHand _ ->
+            "hand player-0"
+
+        TheirHand op _ ->
+            "opponentHand player-" ++ fromInt op
+
+        DiscardPile _ ->
+            "discardPile"
+
+        InFlight _ _ ->
+            "inFlight"
+
+        InFlightOpen _ _ ->
+            "inFlightOpen"
+
+        CenterRow _ ->
+            "centerRow"
+
+
+cardView : List ( CardId, Highlight ) -> Card -> CardAniAttrs Msg -> Html Msg
+cardView highlightedCards card ( aniAttrs, innerAttrs ) =
     let
+        location =
+            card.location
+
         dragTrigger =
             case card.location of
                 MyHand p ->
@@ -740,56 +804,10 @@ cardView _ highlightedCards card ( aniAttrs, innerAttrs ) =
 
         highLight =
             highlightClass <| List.head <| List.filter (\( id, _ ) -> id == card.id) highlightedCards
-
-        z =
-            case card.location of
-                Deck ->
-                    10
-
-                MyHand i ->
-                    200 - i
-
-                TheirHand _ i ->
-                    200 - i
-
-                DiscardPile i ->
-                    100 + i
-
-                InFlight _ _ ->
-                    300
-
-                InFlightOpen _ _ ->
-                    300
-
-                CenterRow _ ->
-                    0
-
-        class_ =
-            case card.location of
-                Deck ->
-                    "deck"
-
-                MyHand _ ->
-                    "hand player-0"
-
-                TheirHand op _ ->
-                    "opponentHand player-" ++ fromInt op
-
-                DiscardPile _ ->
-                    "discardPile"
-
-                InFlight _ _ ->
-                    "inFlight"
-
-                InFlightOpen _ _ ->
-                    "inFlightOpen"
-
-                CenterRow _ ->
-                    "centerRow"
     in
     div
-        ((style "zIndex" <| fromInt z)
-            :: class (highLight ++ " card " ++ class_)
+        ((style "zIndex" <| fromInt <| zIndexFor location)
+            :: class (highLight ++ " card " ++ cssClassFor location)
             :: dragTrigger
             ++ aniAttrs
         )
@@ -797,16 +815,11 @@ cardView _ highlightedCards card ( aniAttrs, innerAttrs ) =
         [ viewCardContent innerAttrs card.content ]
 
 
-deckCard : Card
-deckCard =
-    { id = -1, location = Deck, content = NumberCard 1 }
-
-
 deckCardAni : ViewportInfo -> CardAniAttrs Msg
 deckCardAni viewportInfo =
     let
         ( attrs, iattrs ) =
-            deckAttrs viewportInfo
+            interpolate (Settled viewportInfo.deckPos)
     in
     ( onClick Draw :: attrs, iattrs )
 
@@ -831,19 +844,27 @@ stack size attrs =
 deckView : ViewportInfo -> Int -> Html Msg
 deckView viewportInfo deckSize =
     let
-        ( attrs, _ ) =
-            deckAttrs viewportInfo
+        ( attrs, attrsInner ) =
+            interpolate (Settled viewportInfo.deckPos)
+
+        attributes =
+            [ onClick Draw
+            , style "zIndex" <| fromInt <| zIndexFor Deck
+            , class <| "card " ++ cssClassFor Deck
+            ]
+                ++ attrs
+
+        deckCard =
+            div attributes [ viewCardContent attrsInner (NumberCard 1) ]
     in
     div [ class "deck-stack" ]
-        [ cardView False [] deckCard (deckCardAni viewportInfo)
-        , stack deckSize attrs
-        ]
+        [ deckCard, stack deckSize attrs ]
 
 
 cardsView : Model -> List (Html Msg)
-cardsView { cards, highlightedCards, draggedCard, pileSize, viewportInfo } =
+cardsView { cards, highlightedCards, pileSize, viewportInfo } =
     deckView viewportInfo pileSize
-        :: Cards.viewAnis cards (cardView (Maybe.Extra.isJust draggedCard) highlightedCards)
+        :: Cards.viewAnis cards (cardView highlightedCards)
 
 
 cardPositions : Model -> CardsModel -> Location -> Props
@@ -853,6 +874,22 @@ cardPositions { viewportInfo } =
 
 centerRowCardGutterFactor =
     1.15
+
+
+maxSpread =
+    35
+
+
+startSpread =
+    maxSpread * -0.5
+
+
+offsetPerCard =
+    vec 50 0
+
+
+offsetPerCardV =
+    vec 0 50
 
 
 screenPos : ViewportInfo -> CardsModel -> Location -> Props
@@ -1017,7 +1054,7 @@ viewportInfoFor size =
         { vec = vec cardWidth cardHeight
         , width = cardWidth
         , height = cardHeight
-        , font = cardHeight * 0.1
+        , font = cardHeight * 0.7
         }
     , centerRowOrigin = point centerRowX centerRowY
     , deckPos = deckPos
@@ -1038,11 +1075,6 @@ inlineCSS viewportInfo =
                 ]
     in
     node "style" [] [ text <| inlineRawCss ]
-
-
-deckAttrs : ViewportInfo -> CardAniAttrs msg
-deckAttrs viewportInfo =
-    interpolate (Settled viewportInfo.deckPos)
 
 
 centerRowSpot : ViewportInfo -> Int -> Point
@@ -1159,3 +1191,8 @@ operatorCenterCards c =
 swapCenterCards : Card -> Bool
 swapCenterCards c =
     isInCenterRow c && isSwapCard c
+
+
+discardPileWiggle : List Float
+discardPileWiggle =
+    PseudoRandom.floatSequence 100 234 ( 0, 10 )
