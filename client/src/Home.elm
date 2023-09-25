@@ -312,9 +312,9 @@ screenPos { width, height, cardSize } _ location =
             }
 
         MultiPile i ->
-            { pos = point (centerX + 0.5 * cardSize.width + (toFloat i * cardSize.width * 0.3)) 100
+            { pos = point (centerX + cardSize.width + (toFloat i * cardSize.width * -0.3)) 100
             , opacity = 1.0
-            , degrees = 20 + (toFloat i * 10)
+            , degrees = 20 + (toFloat i * -10)
             , flip = 0
             }
 
