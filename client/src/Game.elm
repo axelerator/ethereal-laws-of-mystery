@@ -50,7 +50,7 @@ import Hades
         , toBackendEnvelopeEncoder
         )
 import Html exposing (Attribute, Html, a, br, button, div, node, p, span, text)
-import Html.Attributes exposing (attribute, class, id, style)
+import Html.Attributes exposing (attribute, class, id, style, width)
 import Html.Events exposing (onClick)
 import Http exposing (jsonBody)
 import Maybe.Extra exposing (values)
@@ -119,7 +119,7 @@ init__ viewportSize { center, hand, opponents, discardPile } =
 
         mkOpponentCards : Int -> Opponent -> List ( Location, CardContent )
         mkOpponentCards opId { handSize } =
-            List.map (mkOpponentCard opId) <| List.range 0 handSize
+            List.map (mkOpponentCard (opId + 1)) <| List.range 0 handSize
 
         mkOpponentCard opId handPos =
             ( TheirHand opId handPos
@@ -138,7 +138,7 @@ init__ viewportSize { center, hand, opponents, discardPile } =
             List.concat [ centerCards, handCards, opponentCards, discardedCards ]
 
         viewportInfo =
-            viewportInfoFor viewportSize
+            viewportInfoFor (List.length opponents) viewportSize
     in
     Tuple.first <| addCards (screenPos viewportInfo) cards empty
 
@@ -153,7 +153,7 @@ init realmId gameInfo =
       , draggedCard = Nothing
       , drag = Draggable.init
       , viewportSize = vec 500 500
-      , viewportInfo = viewportInfoFor <| vec 500 500
+      , viewportInfo = viewportInfoFor (List.length gameInfo.opponents) <| vec 500 500
       , gameState = gameInfo.gameState
       , opponents = gameInfo.opponents
       , turn = gameInfo.turn
@@ -293,27 +293,28 @@ placeInFlightCard model targetLocation =
 
                                 else
                                     CenterRow 1
+
                             discardedCard =
-                              Cards.idOf discardedCardLocation model.cards
+                                Cards.idOf discardedCardLocation model.cards
 
                             withoutDiscardedCenterCard =
-                              case discardedCard of
-                                Just discardedCardId ->
-                                      moveCardTo
-                                          (cardPositions model)
-                                          model.cards
-                                          discardedCardId
-                                          (DiscardPile (lastDiscardedPos + 1))
-                                _ -> 
-                                  model.cards
-                            withSwappedCard =
-                                      moveCardTo
-                                          (cardPositions model)
-                                          withoutDiscardedCenterCard
-                                          cardOnTarget_.id
-                                          discardedCardLocation
-                              
+                                case discardedCard of
+                                    Just discardedCardId ->
+                                        moveCardTo
+                                            (cardPositions model)
+                                            model.cards
+                                            discardedCardId
+                                            (DiscardPile (lastDiscardedPos + 1))
 
+                                    _ ->
+                                        model.cards
+
+                            withSwappedCard =
+                                moveCardTo
+                                    (cardPositions model)
+                                    withoutDiscardedCenterCard
+                                    cardOnTarget_.id
+                                    discardedCardLocation
                         in
                         moveCardTo (cardPositions model) withSwappedCard fromId targetLocation
 
@@ -334,7 +335,7 @@ placeInFlightCard model targetLocation =
                     model.cards
     in
     { model
-        | cards = consolidateHandCards (cardPositions model) cards
+        | cards = consolidateMyHandCards (cardPositions model) cards
         , turn =
             if List.isEmpty model.opponents then
                 0
@@ -391,7 +392,7 @@ update _ msg model =
         GotViewPort { scene } ->
             let
                 viewportInfo =
-                    viewportInfoFor <| vec scene.width scene.height
+                    viewportInfoFor model.viewportInfo.numOfOpponents <| vec scene.width scene.height
             in
             ( { model
                 | cards = updateAni (screenPos viewportInfo) model.cards
@@ -435,8 +436,8 @@ update _ msg model =
                     , Cmd.none
                     )
 
-                TheyPlayed from to content nextPlayer ->
-                    ( theyPlayed model from to content nextPlayer
+                TheyPlayed whoPlayed from to content nextPlayer ->
+                    ( theyPlayed model whoPlayed from to content nextPlayer
                     , Cmd.none
                     )
 
@@ -589,25 +590,66 @@ update _ msg model =
             )
 
 
-theyPlayed : Model -> Location -> Location -> CardContent -> RelativeOpponent -> Model
-theyPlayed model from to content nextPlayer =
+theyPlayed : Model -> RelativeOpponent -> Location -> Location -> CardContent -> RelativeOpponent -> Model
+theyPlayed model whoPlayed from to content nextPlayer =
     case ( idOf from model.cards, idOf to model.cards ) of
         ( Just fromId, Just toId ) ->
             let
-                lastDiscardedPos =
-                    List.length <| idsOf isOnDiscardPile model.cards
+                nextCards =
+                    if content == SwapOperators then
+                        let
+                            withRevealedCard =
+                                revealContent model.cards fromId content
 
-                withoutDiscardedCenterCard =
-                    moveCardTo (cardPositions model) model.cards toId (DiscardPile (lastDiscardedPos + 1))
+                            lastDiscardedPos =
+                                List.length <| idsOf isOnDiscardPile model.cards
 
-                withRevealedCard =
-                    revealContent withoutDiscardedCenterCard fromId content
+                            discardedCardLocation =
+                                if to == CenterRow 1 then
+                                    CenterRow 3
 
-                cards =
-                    moveCardTo (cardPositions model) withRevealedCard fromId to
+                                else
+                                    CenterRow 1
+
+                            discardedCard =
+                                Cards.idOf discardedCardLocation model.cards
+
+                            withoutDiscardedCenterCard =
+                                case discardedCard of
+                                    Just discardedCardId ->
+                                        moveCardTo
+                                            (cardPositions model)
+                                            withRevealedCard
+                                            discardedCardId
+                                            (DiscardPile (lastDiscardedPos + 1))
+
+                                    _ ->
+                                        model.cards
+
+                            withSwappedCard =
+                                moveCardTo
+                                    (cardPositions model)
+                                    withoutDiscardedCenterCard
+                                    toId
+                                    discardedCardLocation
+                        in
+                        moveCardTo (cardPositions model) withSwappedCard fromId to
+
+                    else
+                        let
+                            lastDiscardedPos =
+                                List.length <| idsOf isOnDiscardPile model.cards
+
+                            withoutDiscardedCenterCard =
+                                moveCardTo (cardPositions model) model.cards toId (DiscardPile (lastDiscardedPos + 1))
+
+                            withRevealedCard =
+                                revealContent withoutDiscardedCenterCard fromId content
+                        in
+                        moveCardTo (cardPositions model) withRevealedCard fromId to
             in
             { model
-                | cards = cards
+                | cards = consolidateTheirHandCards whoPlayed (screenPos model.viewportInfo) nextCards
                 , turn = nextPlayer
             }
 
@@ -969,53 +1011,20 @@ screenPos viewportInfo cardsModel loc =
         TheirHand opponentId p ->
             case opponentId of
                 1 ->
-                    let
-                        handCardCount =
-                            List.length <| Cards.filter (isInOpponentsHand opponentId) cardsModel
+                    if viewportInfo.numOfOpponents == 1 then
+                        handVisAVis viewportInfo cardsModel opponentId p
 
-                        degreePerCard =
-                            maxSpread / toFloat handCardCount
-
-                        totalHeight =
-                            times (toFloat handCardCount) offsetPerCardV
-
-                        ( _, viewportHeight ) =
-                            Vector2d.toTuple Pixels.inPixels viewportInfo.size
-
-                        top =
-                            move (times -0.5 totalHeight) (point (viewportInfo.cardSize.width * -0.5) (viewportHeight * 0.5))
-                    in
-                    { pos = move (times (toFloat p) offsetPerCardV) top
-                    , opacity = 1.0
-                    , degrees = -90 + (startSpread + degreePerCard * toFloat p)
-                    , flip = 180
-                    }
+                    else
+                        handLeftOp viewportInfo cardsModel opponentId p
 
                 2 ->
-                    let
-                        handCardCount =
-                            List.length <| Cards.filter (isInOpponentsHand opponentId) cardsModel
-
-                        degreePerCard =
-                            maxSpread / toFloat handCardCount
-
-                        totalWidth =
-                            times (toFloat handCardCount) offsetPerCard
-
-                        { x } =
-                            toPixels viewportInfo.handOrigin
-
-                        left =
-                            move (times -0.5 totalWidth) (point x (viewportInfo.cardSize.height * -0.5))
-                    in
-                    { pos = move (times (toFloat p) offsetPerCard) left
-                    , opacity = 1.0
-                    , degrees = -startSpread - degreePerCard * toFloat p
-                    , flip = 180
-                    }
+                    if viewportInfo.numOfOpponents == 2 then
+                      handRightOp viewportInfo cardsModel opponentId p
+                    else
+                      handVisAVis viewportInfo cardsModel opponentId p
 
                 _ ->
-                    Debug.todo "positions for third opp "
+                  handRightOp viewportInfo cardsModel opponentId p
 
         InFlight x y ->
             { pos = point x y
@@ -1038,9 +1047,87 @@ screenPos viewportInfo cardsModel loc =
             , flip = 0
             }
 
+handRightOp : ViewportInfo -> CardsModel -> OpponentId -> Int -> Props
+handRightOp viewportInfo cardsModel opponentId p =
+    let
+        handCardCount =
+            List.length <| Cards.filter (isInOpponentsHand opponentId) cardsModel
 
-viewportInfoFor : Vec -> ViewportInfo
-viewportInfoFor size =
+        degreePerCard =
+            maxSpread / toFloat handCardCount
+
+        totalHeight =
+            times (toFloat handCardCount) offsetPerCardV
+
+        ( viewportWidth, viewportHeight ) =
+            Vector2d.toTuple Pixels.inPixels viewportInfo.size
+
+        top =
+            move (times -0.5 totalHeight) (point (viewportWidth - viewportInfo.cardSize.width * 0.5) (viewportHeight * 0.5))
+    in
+    { pos = move (times (toFloat p) offsetPerCardV) top
+    , opacity = 1.0
+    , degrees = 90 - (startSpread + degreePerCard * toFloat p)
+    , flip = 180
+    }
+
+
+
+handLeftOp : ViewportInfo -> CardsModel -> OpponentId -> Int -> Props
+handLeftOp viewportInfo cardsModel opponentId p =
+    let
+        handCardCount =
+            List.length <| Cards.filter (isInOpponentsHand opponentId) cardsModel
+
+        degreePerCard =
+            maxSpread / toFloat handCardCount
+
+        totalHeight =
+            times (toFloat handCardCount) offsetPerCardV
+
+        ( _, viewportHeight ) =
+            Vector2d.toTuple Pixels.inPixels viewportInfo.size
+
+        top =
+            move (times -0.5 totalHeight) (point (viewportInfo.cardSize.width * -0.5) (viewportHeight * 0.5))
+    in
+    { pos = move (times (toFloat p) offsetPerCardV) top
+    , opacity = 1.0
+    , degrees = -90 + (startSpread + degreePerCard * toFloat p)
+    , flip = 180
+    }
+
+
+handVisAVis : ViewportInfo -> CardsModel -> OpponentId -> Int -> Props
+handVisAVis viewportInfo cardsModel opponentId p =
+    let
+        handCardCount =
+            List.length <| Cards.filter (isInOpponentsHand opponentId) cardsModel
+
+        _ =
+            Debug.log "opp hand count" handCardCount
+
+        degreePerCard =
+            maxSpread / toFloat handCardCount
+
+        totalWidth =
+            times (toFloat handCardCount) offsetPerCard
+
+        { x } =
+            toPixels viewportInfo.handOrigin
+
+        left =
+            move (times -0.5 totalWidth) (point x (viewportInfo.cardSize.height * -0.5))
+    in
+    { pos = move (times (toFloat p) offsetPerCard) left
+    , opacity = 1.0
+    , degrees = -startSpread - degreePerCard * toFloat p
+    , flip = 180
+    }
+
+
+viewportInfoFor : Int -> Vec -> ViewportInfo
+viewportInfoFor numOfOpponents size =
     let
         ( width, height ) =
             Vector2d.toTuple Pixels.inPixels size
@@ -1098,6 +1185,7 @@ viewportInfoFor size =
     , centerRowOrigin = point centerRowX centerRowY
     , deckPos = deckPos
     , discardPilePos = discardPilePos
+    , numOfOpponents = numOfOpponents
     }
 
 
@@ -1130,26 +1218,61 @@ isInMyHand c =
             False
 
 
-consolidateHandCards : CardPositions -> CardsModel -> CardsModel
-consolidateHandCards cpos cards =
+consolidateHandCards : (Card -> Maybe Int) -> (Int -> Location) -> CardPositions -> CardsModel -> CardsModel
+consolidateHandCards handPos fromPos cpos cards =
+    let
+        withPosition i card =
+            { card | location = fromPos i }
+
+        isInHand c =
+            case handPos c of
+                Just _ ->
+                    True
+
+                Nothing ->
+                    False
+
+        handPos_ =
+            Maybe.withDefault -1 << handPos
+
+        handCards =
+            Cards.filter isInHand cards
+                |> List.sortBy handPos_
+                |> List.indexedMap withPosition
+    in
+    updateCards cpos handCards cards
+
+
+consolidateMyHandCards : CardPositions -> CardsModel -> CardsModel
+consolidateMyHandCards cpos cards =
     let
         handPos c =
             case c.location of
                 MyHand i ->
-                    i
+                    Just i
 
                 _ ->
-                    -1
-
-        withPosition i card =
-            { card | location = MyHand i }
-
-        handCards =
-            Cards.filter isInMyHand cards
-                |> List.sortBy handPos
-                |> List.indexedMap withPosition
+                    Nothing
     in
-    updateCards cpos handCards cards
+    consolidateHandCards handPos MyHand cpos cards
+
+
+consolidateTheirHandCards : OpponentId -> CardPositions -> CardsModel -> CardsModel
+consolidateTheirHandCards opponentId cpos cards =
+    let
+        handPos c =
+            case c.location of
+                TheirHand opId i ->
+                    if opId == opponentId then
+                        Just i
+
+                    else
+                        Nothing
+
+                _ ->
+                    Nothing
+    in
+    consolidateHandCards handPos (TheirHand opponentId) cpos cards
 
 
 isOnDiscardPile : Card -> Bool

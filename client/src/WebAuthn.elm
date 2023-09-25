@@ -14,7 +14,7 @@ type alias WithWebAuthnPort msg =
 
 initOnLogin : WithWebAuthnPort msg -> String -> ( Model, Cmd msg, Cmd Msg )
 initOnLogin { webauthn } username =
-    ( OnLogin username |> withoutError
+    ( OnLoginWithCreds username username |> withoutError
     , webauthn ( "init", js )
     , testIfSessionAuthenticated
     )

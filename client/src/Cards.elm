@@ -59,6 +59,7 @@ type alias ViewportInfo =
     , centerRowOrigin : Point
     , deckPos : Props
     , discardPilePos : Props
+    , numOfOpponents : Int
     }
 
 

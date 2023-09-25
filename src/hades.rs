@@ -4,10 +4,7 @@ use std::fs::File;
 
 use crate::{
     app::{ToBackend, ToFrontend, ToFrontendLobby, ToLobby},
-    game::{
-        CardContent, GameInfo, GameState, Location, Operator, Opponent, ToGame,
-        Transition,
-    },
+    game::{CardContent, GameInfo, GameState, Location, Operator, Opponent, ToGame, Transition},
     LoginCredentials, LoginCredentialsResponse, RegisterCredentials, RegisterCredentialsResponse,
 };
 

@@ -55,7 +55,13 @@ pub enum Transition {
     IDraw(CardContent),
     TheyDraw(RelativeOpponent, RelativeOpponent),
     IPlayed(Location),
-    TheyPlayed(Location, Location, CardContent, RelativeOpponent),
+    TheyPlayed(
+        RelativeOpponent,
+        Location,
+        Location,
+        CardContent,
+        RelativeOpponent,
+    ),
     IWon,
     ILost,
     TurnChanged(RelativeOpponent),
@@ -206,6 +212,7 @@ impl Game {
                         transitions.push((
                             other_player.id,
                             Transition::TheyPlayed(
+                                self.player_relative_to(&other_player.id, user),
                                 from,
                                 to,
                                 played_card.clone(),
@@ -248,6 +255,7 @@ impl Game {
                         transitions.push((
                             other_player.id,
                             Transition::TheyPlayed(
+                                self.player_relative_to(&other_player.id, user),
                                 from,
                                 to,
                                 played_card.clone(),
@@ -326,6 +334,10 @@ impl Game {
         let drawn_cards: Vec<CardContent> = self.pile.drain(0..n).collect();
         let mut transitions = vec![];
         let next_player_id = self.proceed_to_next_player();
+        println!(
+            "After draw of {:?} next player is {:?}",
+            user, next_player_id
+        );
         for drawn_card in drawn_cards.iter() {
             for player in self.players.iter() {
                 if &player.id == user {
@@ -335,7 +347,7 @@ impl Game {
                         player.id,
                         Transition::TheyDraw(
                             self.player_relative_to(user, &player.id),
-                            self.player_relative_to(user, &next_player_id),
+                            self.player_relative_to(&player.id, &next_player_id),
                         ),
                     ));
                 }
@@ -413,10 +425,18 @@ impl Game {
             .unwrap();
         let mut opponents = self.players.iter().collect::<Vec<&Player>>();
         opponents.rotate_left(my_pos);
-        opponents
+        let r = opponents
             .iter()
             .position(|p| &p.id == current_player)
-            .unwrap()
+            .unwrap();
+        println!(
+            "{:?}\ncurrent:{:?}\nother:{:?} -> op: {:?}",
+            self.players.iter().map(|p| p.id).collect::<Vec<UserId>>(),
+            current_player,
+            player_id,
+            r
+        );
+        r
     }
 
     fn restart(mut self, user: &UserId) -> GameChanger {

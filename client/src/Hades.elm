@@ -238,7 +238,7 @@ type Transition
     = IDraw (CardContent)
     | TheyDraw (Int) (Int)
     | IPlayed (Location)
-    | TheyPlayed (Location) (Location) (CardContent) (Int)
+    | TheyPlayed (Int) (Location) (Location) (CardContent) (Int)
     | IWon
     | ILost
     | TurnChanged (Int)
@@ -251,7 +251,7 @@ transitionDecoder =
         [ Json.Decode.map IDraw (Json.Decode.field "IDraw" (cardContentDecoder))
         , Json.Decode.field "TheyDraw" (Json.Decode.succeed TheyDraw |> Json.Decode.andThen (\x -> Json.Decode.index 0 (Json.Decode.int) |> Json.Decode.map x) |> Json.Decode.andThen (\x -> Json.Decode.index 1 (Json.Decode.int) |> Json.Decode.map x))
         , Json.Decode.map IPlayed (Json.Decode.field "IPlayed" (locationDecoder))
-        , Json.Decode.field "TheyPlayed" (Json.Decode.succeed TheyPlayed |> Json.Decode.andThen (\x -> Json.Decode.index 0 (locationDecoder) |> Json.Decode.map x) |> Json.Decode.andThen (\x -> Json.Decode.index 1 (locationDecoder) |> Json.Decode.map x) |> Json.Decode.andThen (\x -> Json.Decode.index 2 (cardContentDecoder) |> Json.Decode.map x) |> Json.Decode.andThen (\x -> Json.Decode.index 3 (Json.Decode.int) |> Json.Decode.map x))
+        , Json.Decode.field "TheyPlayed" (Json.Decode.succeed TheyPlayed |> Json.Decode.andThen (\x -> Json.Decode.index 0 (Json.Decode.int) |> Json.Decode.map x) |> Json.Decode.andThen (\x -> Json.Decode.index 1 (locationDecoder) |> Json.Decode.map x) |> Json.Decode.andThen (\x -> Json.Decode.index 2 (locationDecoder) |> Json.Decode.map x) |> Json.Decode.andThen (\x -> Json.Decode.index 3 (cardContentDecoder) |> Json.Decode.map x) |> Json.Decode.andThen (\x -> Json.Decode.index 4 (Json.Decode.int) |> Json.Decode.map x))
         , Json.Decode.string
             |> Json.Decode.andThen
                 (\x ->
