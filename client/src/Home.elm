@@ -26,7 +26,7 @@ import Hades
         , Transition(..)
         , toBackendEnvelopeEncoder
         )
-import Html exposing (Attribute, Html, div, node, text)
+import Html exposing (Attribute, Html, div, node, span, text)
 import Html.Attributes exposing (attribute, class, style, width)
 import Html.Events exposing (onClick)
 import Http exposing (jsonBody)
@@ -65,7 +65,8 @@ type alias Card =
 type alias CardsModel =
     Cards.CardsModel Location CardContent
 
-init : (Model, Cmd Msg)
+
+init : ( Model, Cmd Msg )
 init =
     ( Closed <| viewportInfoFor 500 500
     , Task.perform GotViewPort getViewport
@@ -327,7 +328,25 @@ screenPos { width, height, cardSize } _ location =
 
 view : Model -> Html Msg
 view model =
-    div [ class "cards" ] <| cardsView model
+    div [ class "cards home" ] <|
+        title
+            :: cardsView model
+
+
+title =
+    div [ class "gameTitle" ] <|
+        List.map
+            (\s ->
+                span
+                    (if s /= "" then
+                        [ class s ]
+
+                     else
+                        []
+                    )
+                    [ text s ]
+            )
+            [ "E", "thereal", " ", "L", "aws", " ", "of", " ", "M", "ystery" ]
 
 
 inlineCSS : ViewportInfo -> Html msg
@@ -370,16 +389,16 @@ viewCardContent aniAttrs content =
         ( txt, smallTxt, imageName ) =
             case content of
                 SinglePlayerCard ->
-                    ( text "Solo", text "1", "solo" )
+                    ( text "Solo", text "1 player", "solo" )
 
                 DuelCard ->
-                    ( text "Duel", text "2", "duel" )
+                    ( text "Duel", text "2 players", "duel" )
 
                 TriadCard ->
-                    ( text "Triad", text "3", "duel" )
+                    ( text "Triad", text "3 players", "duel" )
 
                 QuadCard ->
-                    ( text "Quad", text "4", "duel" )
+                    ( text "Quad", text "4 players", "duel" )
 
         action =
             case content of

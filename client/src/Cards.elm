@@ -184,7 +184,7 @@ removeCard :
     -> ( Maybe ( Card location cardContent, Point ), CardsModel location cardContent )
 removeCard cardPositions cardId ((CardsModel ({ cards, visuals } as rest)) as model) =
     let
-        ( extracted_cards, _ ) =
+        ( extracted_cards, restCards) =
             List.partition ((==) cardId << .id) cards
 
         visual =
@@ -205,7 +205,7 @@ removeCard cardPositions cardId ((CardsModel ({ cards, visuals } as rest)) as mo
         ( Just card, Just p ) ->
             ( Just ( card, p )
             , CardsModel
-                { rest | cards = cards }
+                { rest | cards = restCards }
                 |> updateAni cardPositions
             )
 

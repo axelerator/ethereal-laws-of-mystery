@@ -1007,7 +1007,7 @@ viewportInfoFor size =
             Vector2d.toTuple Pixels.inPixels size
 
         cardHeight =
-            height / 4
+            height / 5
 
         cardWidth =
             cardHeight * 0.7
