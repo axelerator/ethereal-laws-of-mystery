@@ -274,22 +274,61 @@ placeInFlightCard model targetLocation =
             List.head <| Cards.filter isInInflight model.cards
 
         cardOnTarget =
-            List.head <| idsOf (\c -> c.location == targetLocation) model.cards
+            List.head <| Cards.filter (\c -> c.location == targetLocation) model.cards
 
         cards =
             case ( inFlightCard, cardOnTarget ) of
-                ( Just inFlightCard_, Just toId ) ->
-                    let
-                        fromId =
-                            inFlightCard_.id
+                ( Just inFlightCard_, Just cardOnTarget_ ) ->
+                    if inFlightCard_.content == SwapOperators then
+                        let
+                            fromId =
+                                inFlightCard_.id
 
-                        lastDiscardedPos =
-                            List.length <| idsOf isOnDiscardPile model.cards
+                            lastDiscardedPos =
+                                List.length <| idsOf isOnDiscardPile model.cards
 
-                        withoutDiscardedCenterCard =
-                            moveCardTo (cardPositions model) model.cards toId (DiscardPile (lastDiscardedPos + 1))
-                    in
-                    moveCardTo (cardPositions model) withoutDiscardedCenterCard fromId targetLocation
+                            discardedCardLocation =
+                                if targetLocation == CenterRow 1 then
+                                    CenterRow 3
+
+                                else
+                                    CenterRow 1
+                            discardedCard =
+                              Cards.idOf discardedCardLocation model.cards
+
+                            withoutDiscardedCenterCard =
+                              case discardedCard of
+                                Just discardedCardId ->
+                                      moveCardTo
+                                          (cardPositions model)
+                                          model.cards
+                                          discardedCardId
+                                          (DiscardPile (lastDiscardedPos + 1))
+                                _ -> 
+                                  model.cards
+                            withSwappedCard =
+                                      moveCardTo
+                                          (cardPositions model)
+                                          withoutDiscardedCenterCard
+                                          cardOnTarget_.id
+                                          discardedCardLocation
+                              
+
+                        in
+                        moveCardTo (cardPositions model) withSwappedCard fromId targetLocation
+
+                    else
+                        let
+                            fromId =
+                                inFlightCard_.id
+
+                            lastDiscardedPos =
+                                List.length <| idsOf isOnDiscardPile model.cards
+
+                            withoutDiscardedCenterCard =
+                                moveCardTo (cardPositions model) model.cards cardOnTarget_.id (DiscardPile (lastDiscardedPos + 1))
+                        in
+                        moveCardTo (cardPositions model) withoutDiscardedCenterCard fromId targetLocation
 
                 _ ->
                     model.cards

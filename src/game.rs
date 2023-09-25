@@ -112,6 +112,11 @@ fn deck() -> Vec<CardContent> {
 
 type GameChanger = (Game, Vec<(UserId, Transition)>);
 
+enum MoveType {
+    JustPlace,
+    SwapOperators,
+}
+
 pub struct Game {
     players: Vec<Player>,
     pile: Vec<CardContent>,
@@ -174,55 +179,143 @@ impl Game {
     }
 
     fn play(mut self, user: &UserId, from_hand_pos: usize, to_deck_pos: usize) -> GameChanger {
-        if user != &self.current_player {
-            error!("It's not this players turn");
-            return (self, vec![]);
-        }
-        let player = self
-            .players
-            .iter_mut()
-            .find(|p| &p.id == user)
-            .expect("Player not part of the game");
+        match self.validate(user, from_hand_pos, to_deck_pos) {
+            Err(msg) => {
+                error!(msg);
+                return (self, vec![]);
+            }
+            Ok(MoveType::JustPlace) => {
+                let player = self.players.iter_mut().find(|p| &p.id == user).unwrap();
 
-        let played_card = player.hand.remove(from_hand_pos);
+                let played_card = player.hand.remove(from_hand_pos);
 
-        let target_location = Location::CenterRow(to_deck_pos);
-        let next_player_id = self.proceed_to_next_player();
+                let target_location = Location::CenterRow(to_deck_pos);
+                let next_player_id = self.proceed_to_next_player();
 
-        let mut transitions = vec![];
-        for other_player in self.players.iter() {
-            if &other_player.id == user {
-                transitions.push((
-                    other_player.id,
-                    Transition::IPlayed(target_location.clone()),
-                ));
-            } else {
-                let opponent = self.player_relative_to(&other_player.id, user);
-                let from = Location::TheirHand(opponent, from_hand_pos);
-                let to = target_location.clone();
-                transitions.push((
-                    other_player.id,
-                    Transition::TheyPlayed(
-                        from,
-                        to,
-                        played_card.clone(),
-                        self.player_relative_to(&other_player.id, &next_player_id),
-                    ),
-                ));
+                let mut transitions = vec![];
+                for other_player in self.players.iter() {
+                    if &other_player.id == user {
+                        transitions.push((
+                            other_player.id,
+                            Transition::IPlayed(target_location.clone()),
+                        ));
+                    } else {
+                        let opponent = self.player_relative_to(&other_player.id, user);
+                        let from = Location::TheirHand(opponent, from_hand_pos);
+                        let to = target_location.clone();
+                        transitions.push((
+                            other_player.id,
+                            Transition::TheyPlayed(
+                                from,
+                                to,
+                                played_card.clone(),
+                                self.player_relative_to(&other_player.id, &next_player_id),
+                            ),
+                        ));
+                    }
+                }
+                println!(
+                    "Played card: {:?} to deck pos: {:?}",
+                    played_card, to_deck_pos
+                );
+                let discarded_card = std::mem::replace(&mut self.center[to_deck_pos], played_card);
+                self.discard_pile.push(discarded_card);
+
+                if let Some(game_over_transition) = self.is_game_over(user) {
+                    transitions.extend(game_over_transition);
+                    self.winner = Some(*user);
+                }
+                (self, transitions)
+            }
+            Ok(MoveType::SwapOperators) => {
+                let player = self.players.iter_mut().find(|p| &p.id == user).unwrap();
+                let played_card = player.hand.remove(from_hand_pos);
+
+                let target_location = Location::CenterRow(to_deck_pos);
+                let next_player_id = self.proceed_to_next_player();
+
+                let mut transitions = vec![];
+                for other_player in self.players.iter() {
+                    if &other_player.id == user {
+                        transitions.push((
+                            other_player.id,
+                            Transition::IPlayed(target_location.clone()),
+                        ));
+                    } else {
+                        let opponent = self.player_relative_to(&other_player.id, user);
+                        let from = Location::TheirHand(opponent, from_hand_pos);
+                        let to = target_location.clone();
+                        transitions.push((
+                            other_player.id,
+                            Transition::TheyPlayed(
+                                from,
+                                to,
+                                played_card.clone(),
+                                self.player_relative_to(&other_player.id, &next_player_id),
+                            ),
+                        ));
+                    }
+                }
+                let replaced_operator =
+                    std::mem::replace(&mut self.center[to_deck_pos], played_card);
+                let old_equal_pos = if to_deck_pos == 1 { 3 } else { 1 };
+                let replaced_equal =
+                    std::mem::replace(&mut self.center[old_equal_pos], replaced_operator);
+                self.discard_pile.push(replaced_equal);
+
+                if let Some(game_over_transition) = self.is_game_over(user) {
+                    transitions.extend(game_over_transition);
+                    self.winner = Some(*user);
+                }
+                (self, transitions)
             }
         }
-        println!(
-            "Played card: {:?} to deck pos: {:?}",
-            played_card, to_deck_pos
-        );
-        let discarded_card = std::mem::replace(&mut self.center[to_deck_pos], played_card);
-        self.discard_pile.push(discarded_card);
+    }
 
-        if let Some(game_over_transition) = self.is_game_over(user) {
-            transitions.extend(game_over_transition);
-            self.winner = Some(*user);
+    fn validate(
+        &self,
+        user: &UserId,
+        from_hand_pos: usize,
+        to_deck_pos: usize,
+    ) -> Result<MoveType, &str> {
+        let player = self
+            .find_player(user)
+            .ok_or("User is not a player in this game")?;
+
+        if user != &self.current_player {
+            return Err("It's not this players turn");
         }
-        (self, transitions)
+
+        let hand_card = player.hand.get(from_hand_pos).ok_or("Not in hand")?;
+        match hand_card {
+            CardContent::NumberCard(_) => {
+                if to_deck_pos == 1 || to_deck_pos == 3 {
+                    return Err("Can't place a number card there");
+                }
+            }
+            CardContent::SwapOperators => {
+                if self.is_equal_left() && to_deck_pos != 3 {
+                    return Err("Swap can only be placed on 3");
+                }
+                if !self.is_equal_left() && to_deck_pos != 1 {
+                    return Err("Swap can only be placed on 1");
+                }
+                return Ok(MoveType::SwapOperators);
+            }
+            CardContent::OperatorCard(_) => {
+                if self.is_equal_left() && to_deck_pos != 3 {
+                    return Err("Can't place a operator card there");
+                }
+                if !self.is_equal_left() && to_deck_pos != 1 {
+                    return Err("Can't place operator there");
+                }
+            }
+        };
+        Ok(MoveType::JustPlace)
+    }
+
+    fn find_player(&self, user: &UserId) -> Option<&Player> {
+        self.players.iter().find(|p| &p.id == user)
     }
 
     fn draw(mut self, user: &UserId, n: usize) -> GameChanger {
@@ -350,10 +443,11 @@ impl Game {
     fn numbers_match(&self) -> bool {
         println!("Center: {:?}", self.center);
         let (operator, op1, op2, exp) = if self.is_equal_left() {
-            (&self.center[3], 2, 3, 0)
+            (&self.center[3], 2, 4, 0)
         } else {
             (&self.center[1], 0, 2, 4)
         };
+        println!("center: {:?}", self.center);
         let v1 = self.get_val_at(op1);
         let v2 = self.get_val_at(op2);
         let expected = self.get_val_at(exp);

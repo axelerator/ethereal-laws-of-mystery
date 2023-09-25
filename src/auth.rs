@@ -304,7 +304,7 @@ pub enum LoginCredentialsResponse {
 
 pub async fn login_with_credentials(
     Extension(app_state): Extension<AppState>,
-    mut session: WritableSession,
+    session: WritableSession,
     username: String,
     password: String,
 ) -> LoginCredentialsResponse {

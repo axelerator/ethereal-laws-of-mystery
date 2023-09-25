@@ -1,7 +1,7 @@
 extern crate argon2;
 
 use argon2::{
-    password_hash::{rand_core::OsRng, PasswordHasher, SaltString},
+    password_hash::{PasswordHasher, SaltString},
     Argon2,
 };
 use rusqlite::{params, Connection};
