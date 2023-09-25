@@ -166,50 +166,6 @@ pub struct Realms {
     pub realms: HashMap<RealmId, Sender<RealmThreadMsg>>,
 }
 
-impl Realms {
-    pub async fn send_from_frontend(
-        &self,
-        realm_id: RealmId,
-        to_backend: ToBackend,
-        user_id: UserId,
-        session_id: SessionId,
-    ) {
-        self.send_msg(
-            realm_id.clone(),
-            RealmThreadMsg::FromFrontend(to_backend, realm_id, user_id, session_id),
-        )
-        .await;
-    }
-
-    pub async fn send_backend_msg(&self, realm_id: RealmId, msg: Msg) {
-        self.send_msg(realm_id.clone(), RealmThreadMsg::BackendMsg(msg, realm_id))
-            .await
-    }
-
-    pub async fn send_joined_msg(
-        &self,
-        realm_id: &RealmId,
-        user_id: &UserId,
-        session_id: &SessionId,
-    ) {
-        self.send_msg(
-            realm_id.clone(),
-            RealmThreadMsg::SendJoin(realm_id.clone(), *user_id, session_id.clone()),
-        )
-        .await
-    }
-
-    async fn send_msg(&self, realm_id: RealmId, msg: RealmThreadMsg) {
-        if let Some(realm) = self.realms.get(&realm_id) {
-            if realm.send(msg).await.is_err() {
-                todo!("track disconnected")
-            }
-        } else {
-            error!("Realm {:?} not found!", realm_id);
-        }
-    }
-}
-
 async fn process_cmd(
     cmd: CmdInternal,
     realm_members: &RealmMembers,
@@ -505,6 +461,48 @@ impl Realms {
         }
     }
 
+    pub async fn send_from_frontend(
+        &self,
+        realm_id: RealmId,
+        to_backend: ToBackend,
+        user_id: UserId,
+        session_id: SessionId,
+    ) {
+        self.send_msg(
+            realm_id.clone(),
+            RealmThreadMsg::FromFrontend(to_backend, realm_id, user_id, session_id),
+        )
+        .await;
+    }
+
+    pub async fn send_backend_msg(&self, realm_id: RealmId, msg: Msg) {
+        self.send_msg(realm_id.clone(), RealmThreadMsg::BackendMsg(msg, realm_id))
+            .await
+    }
+
+    pub async fn send_joined_msg(
+        &self,
+        realm_id: &RealmId,
+        user_id: &UserId,
+        session_id: &SessionId,
+    ) {
+        self.send_msg(
+            realm_id.clone(),
+            RealmThreadMsg::SendJoin(realm_id.clone(), *user_id, session_id.clone()),
+        )
+        .await
+    }
+
+    async fn send_msg(&self, realm_id: RealmId, msg: RealmThreadMsg) {
+        if let Some(realm) = self.realms.get(&realm_id) {
+            if realm.send(msg).await.is_err() {
+                todo!("track disconnected")
+            }
+        } else {
+            error!("Realm {:?} not found!", realm_id);
+        }
+    }
+
     pub async fn create_realm_with_id(
         &mut self,
         id: &RealmId,
@@ -642,7 +640,6 @@ impl AppState {
                 realm_mngr_inbox,
             )
             .await;
-
         AppState {
             webauthn,
             users,
