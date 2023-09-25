@@ -2,7 +2,9 @@ use rusqlite::Connection;
 use serde_rusqlite::*;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::time::{Duration, SystemTime};
 use tokio::sync::{mpsc::Sender, Mutex, RwLock};
+use tokio::time::sleep;
 use tokio_stream::wrappers::ReceiverStream;
 use webauthn_rs::prelude::*;
 
@@ -154,12 +156,14 @@ pub struct AppState {
     pub realm_members: RealmMembers,
     pub sessions_by_user: SessionsByUser,
     pub events_inbox_by_session_id: InboxesBySession,
+    activity_tracker: Sender<RealmId>,
 }
 
 pub enum RealmThreadMsg {
     FromFrontend(ToBackend, RealmId, UserId, SessionId),
     BackendMsg(Msg, RealmId),
     SendJoin(RealmId, UserId, SessionId),
+    Close,
 }
 
 pub struct Realms {
@@ -380,8 +384,12 @@ pub async fn new_realm(
                         }
                     }
                 }
+                RealmThreadMsg::Close => {
+                    receiver.close();
+                }
             }
         }
+        println!("THIS THREAD IS OVER!, THIS THREAD IS OVER!, THIS THREAD IS OVER!, ");
     });
     inbox
 }
@@ -563,10 +571,16 @@ impl Realms {
         )
         .await;
     }
+
+    pub async fn close(&mut self, realm_id: RealmId) {
+        self.send_msg(realm_id.clone(), RealmThreadMsg::Close).await;
+        self.realms.remove(&realm_id);
+    }
 }
 
 pub enum RealmManagerMsg {
     CreateNewRealm(RealmId, RealmId, NewRealmHint, Msg),
+    CloseForInactiviy(RealmId),
 }
 type RealmManagerInbox = Sender<RealmManagerMsg>;
 
@@ -597,12 +611,13 @@ impl AppState {
         let events_inbox_by_session_id = Arc::new(RwLock::new(HashMap::new()));
 
         let (realm_mngr_inbox, mut realm_mngr_receiver) = mpsc::channel::<RealmManagerMsg>(32);
-
+        let realm_mngr_inbox_for_activity_tracker = realm_mngr_inbox.clone();
+        let activity_tracker = activity_tracker(realm_mngr_inbox_for_activity_tracker).await;
         let realms_ = realms.clone();
-        let realm_members_ = realm_members.clone();
         let events_inbox_by_session_id_ = events_inbox_by_session_id.clone();
         let sessions_by_user_ = sessions_by_user.clone();
         let realm_mngr_inbox_ = realm_mngr_inbox.clone();
+        let realm_members_ = realm_members.clone();
         tokio::spawn(async move {
             while let Some(msg) = realm_mngr_receiver.recv().await {
                 match msg {
@@ -626,6 +641,9 @@ impl AppState {
                             .send_backend_msg(src_realm_id, msg)
                             .await;
                     }
+                    RealmManagerMsg::CloseForInactiviy(realm_id) => {
+                        realm_members_.write().await.close_realm(&realm_id);
+                    }
                 }
             }
         });
@@ -648,6 +666,7 @@ impl AppState {
             sessions_by_user,
             realm_members,
             events_inbox_by_session_id,
+            activity_tracker,
         }
     }
 
@@ -729,8 +748,9 @@ impl AppState {
             self.realms
                 .read()
                 .await
-                .send_from_frontend(realm_id, to_backend, user_id, session_id)
+                .send_from_frontend(realm_id.clone(), to_backend, user_id, session_id)
                 .await;
+            self.activity_tracker.send(realm_id).await.unwrap();
         } else {
             tracing::warn!("{:?} not a member of {:?}", session_id, realm_id);
         }
@@ -742,4 +762,48 @@ impl AppState {
             .await
             .grant_access(user_id, realm_id);
     }
+}
+
+pub async fn activity_tracker(realm_mng: Sender<RealmManagerMsg>) -> Sender<RealmId> {
+    let last_active = Arc::new(RwLock::new(HashMap::new()));
+
+    let last_active_writer = last_active.clone();
+    let (sender, mut receiver) = mpsc::channel::<RealmId>(32);
+    tokio::spawn(async move {
+        while let Some(realm_id) = receiver.recv().await {
+            last_active_writer
+                .write()
+                .await
+                .insert(realm_id, SystemTime::now());
+        }
+    });
+    tokio::spawn(async move {
+        loop {
+            sleep(Duration::from_millis(50000)).await;
+            let mut closed = vec![];
+            let last_active_read = last_active.read().await;
+            for (realm_id, timestamp) in last_active_read.iter() {
+                match timestamp.elapsed() {
+                    Ok(elapsed) => {
+                        if elapsed.as_secs() > 60 && *realm_id != RealmId::Lobby {
+                            realm_mng
+                                .send(RealmManagerMsg::CloseForInactiviy(realm_id.clone()))
+                                .await
+                                .unwrap();
+                            closed.push(realm_id.clone());
+                        }
+                    }
+                    Err(e) => {
+                        error!("Error: {e:?}");
+                    }
+                }
+            }
+            drop(last_active_read);
+            let mut last_active_write = last_active.write().await;
+            for closed_realm_id in closed {
+                last_active_write.remove(&closed_realm_id);
+            }
+        }
+    });
+    sender
 }
