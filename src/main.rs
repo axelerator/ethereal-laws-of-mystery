@@ -13,6 +13,10 @@ use axum::{
     Json, Router,
 };
 
+use prometheus::{
+    HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, Opts, Registry,
+};
+
 use axum_server::tls_rustls::RustlsConfig;
 use axum_sessions::extractors::{ReadableSession, WritableSession};
 use axum_sessions::{async_session::MemoryStore, SameSite, SessionLayer};
@@ -20,6 +24,7 @@ use elm_rs::{Elm, ElmDecode, ElmEncode};
 use error::WebauthnError;
 use futures::stream::Stream;
 use hades::ToBackendEnvelope;
+use lazy_static::lazy_static;
 use rand::thread_rng;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -41,8 +46,45 @@ mod users;
 
 use crate::auth::{finish_authentication, finish_register, start_authentication, start_register};
 
+lazy_static! {
+    pub static ref REGISTRY: Registry = Registry::new();
+    pub static ref INCOMING_REQUESTS: IntCounter =
+        IntCounter::new("incoming_requests", "Incoming Requests").expect("metric can be created");
+    pub static ref CONNECTED_CLIENTS: IntGauge =
+        IntGauge::new("connected_clients", "Connected Clients").expect("metric can be created");
+    pub static ref RESPONSE_CODE_COLLECTOR: IntCounterVec = IntCounterVec::new(
+        Opts::new("response_code", "Response Codes"),
+        &["env", "statuscode", "type"]
+    )
+    .expect("metric can be created");
+    pub static ref RESPONSE_TIME_COLLECTOR: HistogramVec = HistogramVec::new(
+        HistogramOpts::new("response_time", "Response Times"),
+        &["env"]
+    )
+    .expect("metric can be created");
+}
+
+fn register_custom_metrics() {
+    REGISTRY
+        .register(Box::new(INCOMING_REQUESTS.clone()))
+        .expect("collector can be registered");
+
+    REGISTRY
+        .register(Box::new(CONNECTED_CLIENTS.clone()))
+        .expect("collector can be registered");
+
+    REGISTRY
+        .register(Box::new(RESPONSE_CODE_COLLECTOR.clone()))
+        .expect("collector can be registered");
+
+    REGISTRY
+        .register(Box::new(RESPONSE_TIME_COLLECTOR.clone()))
+        .expect("collector can be registered");
+}
+
 #[tokio::main]
 async fn main() {
+    register_custom_metrics();
     let config = RustlsConfig::from_pem_file(
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("self_signed_certs")
@@ -100,14 +142,21 @@ async fn main() {
         .route("/remember", get(remember_handler))
         .route("/send", post(send))
         .route("/events", get(sse_handler))
+        .route("/metrics", get(metrics_handler))
         .layer(Extension(app_state))
         .layer(session_layer);
 
     // run our app with hyper
     // `axum::Server` is a re-export of `hyper::Server`
+    /*
     let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
     debug!("listening on {addr}");
     axum_server::bind_rustls(addr, config)
+        .serve(app.into_make_service())
+        .await
+        .unwrap();
+        */
+    axum::Server::bind(&"0.0.0.0:8080".parse().unwrap())
         .serve(app.into_make_service())
         .await
         .unwrap();
@@ -136,6 +185,7 @@ async fn sse_handler(
     } else {
         unauthorized_stream().await
     };
+    CONNECTED_CLIENTS.inc();
     let stream = src
         .map(|envelope| {
             Event::default()
@@ -149,6 +199,7 @@ async fn sse_handler(
             .interval(Duration::from_secs(1))
             .text("keep-alive-text"),
     )
+
 }
 
 pub async fn remember_handler(session: ReadableSession) -> Result<impl IntoResponse, Infallible> {
@@ -164,6 +215,7 @@ pub async fn send(
     session: ReadableSession,
     Json(envelope): Json<ToBackendEnvelope>,
 ) -> Result<impl IntoResponse, WebauthnError> {
+    INCOMING_REQUESTS.inc();
     if let Some((session_id, user_id)) = session.get(USER_INFO) {
         match envelope {
             ToBackendEnvelope::ForRealm(realm_id, to_backend) => {
@@ -229,4 +281,37 @@ pub async fn handle_login_with_credentials(
     Json(creds): Json<LoginCredentials>,
 ) -> Json<LoginCredentialsResponse> {
     Json(login_with_credentials(app_state, session, creds.username, creds.password).await)
+}
+async fn metrics_handler() -> Result<impl IntoResponse, String> {
+    use prometheus::Encoder;
+    let encoder = prometheus::TextEncoder::new();
+
+    let mut buffer = Vec::new();
+    if let Err(e) = encoder.encode(&REGISTRY.gather(), &mut buffer) {
+        eprintln!("could not encode custom metrics: {}", e);
+    };
+    let mut res = match String::from_utf8(buffer.clone()) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("custom metrics could not be from_utf8'd: {}", e);
+            String::default()
+        }
+    };
+    buffer.clear();
+
+    let mut buffer = Vec::new();
+    if let Err(e) = encoder.encode(&prometheus::gather(), &mut buffer) {
+        eprintln!("could not encode prometheus metrics: {}", e);
+    };
+    let res_custom = match String::from_utf8(buffer.clone()) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("prometheus metrics could not be from_utf8'd: {}", e);
+            String::default()
+        }
+    };
+    buffer.clear();
+
+    res.push_str(&res_custom);
+    Ok(res)
 }
