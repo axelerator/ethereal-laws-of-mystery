@@ -1,10 +1,12 @@
 module WebAuthn exposing (Model, Msg, initOnLogin, update, view)
 
 import Hades exposing (LoginCredentialsResponse(..), RegisterCredentialsResponse(..), loginCredentialsEncoder, loginCredentialsResponseDecoder, registerCredentialsEncoder, registerCredentialsResponseDecoder)
-import Html exposing (Html, a, button, div, input, text)
-import Html.Attributes exposing (class, value)
-import Html.Events exposing (onClick, onInput)
+import Html exposing (Html, a, br, button, div, form, input, p, span, text)
+import Html.Attributes exposing (class, placeholder, style, value)
+import Html.Events exposing (onClick, onInput, onSubmit)
 import Http
+import Maybe.Extra exposing (isJust)
+import String exposing (fromInt)
 
 
 type alias WithWebAuthnPort msg =
@@ -13,318 +15,297 @@ type alias WithWebAuthnPort msg =
 
 
 initOnLogin : WithWebAuthnPort msg -> String -> ( Model, Cmd msg, Cmd Msg )
-initOnLogin { webauthn } username =
-    ( OnLoginWithCreds username username |> withoutError
+initOnLogin { webauthn } lastLoginInfoFromFlags =
+    let
+        model =
+            if lastLoginInfoFromFlags == "" then
+                { username = "", password = Just "", variant = OnLogin, error = Nothing }
+
+            else
+                case Debug.log "split" <| String.split "====" lastLoginInfoFromFlags of
+                    username :: "" :: [] ->
+                        { username = username, password = Just "", variant = OnLogin, error = Nothing }
+
+                    username :: [] ->
+                        { username = username, password = Nothing, variant = OnLogin, error = Nothing }
+
+                    _ ->
+                        { username = "", password = Just "", variant = OnLogin, error = Nothing }
+    in
+    ( model
     , webauthn ( "init", js )
     , testIfSessionAuthenticated
     )
 
 
-withoutError : ModelVariant -> Model
-withoutError variant =
-    { error = Nothing
-    , variant = variant
-    }
-withError : String -> ModelVariant -> Model
-withError msg variant =
-    { error = Just msg
-    , variant = variant
-    }
-
-
-
 type alias Model =
     { error : Maybe String
     , variant : ModelVariant
+    , username : String
+    , password : Maybe String
     }
 
 
 type ModelVariant
-    = OnSignup String
-    | OnLogin String
-    | OnLoginWithCreds String String
-    | OnSignupWithCreds String String
+    = OnSignup
+    | OnLogin
 
 
 type Msg
-    = SignupUsernameChanged String
-    | LoginUsernameChanged String
-    | Login String
-    | Signup String
+    = UsernameChanged String
+    | Login
+    | Signup
     | GotCreationChallenge (Result Http.Error String)
     | GotoLogin
-    | GotoLoginWithCreds
     | GotoSignup
-    | GotoSignupWithCreds
     | Noop (Result Http.Error String)
     | GotRememberMeResponse (Result Http.Error String)
-    | LoginWithCreds String String
-    | SignupWithCreds String String
     | GotRegistrationResponse (Result Http.Error Hades.RegisterCredentialsResponse)
     | GotLoginResponse (Result Http.Error Hades.LoginCredentialsResponse)
-    | SignupPasswordChanged String
-    | LoginPasswordChanged String
+    | PasswordChanged String
+    | TogglePassword
 
 
 update : WithWebAuthnPort Msg -> Msg -> Model -> ( Model, Cmd Msg )
 update { webauthn } msg model =
-    let
-        ( variant_, cmd , mbErr) =
-            case ( msg, model.variant ) of
-                ( GotoSignupWithCreds, _ ) ->
-                    ( OnSignupWithCreds "at" ""
-                    , Cmd.none
-                    , Nothing
+    case msg of
+        GotoLogin ->
+            ( { model | variant = OnLogin }
+            , Cmd.none
+            )
+
+        GotoSignup ->
+            ( { model | variant = OnSignup }
+            , Cmd.none
+            )
+
+        Noop res ->
+            let
+                _ =
+                    Debug.log "noop" res
+            in
+            ( model
+            , Cmd.none
+            )
+
+        GotRememberMeResponse res ->
+            case res of
+                Ok "yay" ->
+                    ( model
+                    , webauthn ( "establishSSEconnection", "" )
                     )
 
-                ( GotoLoginWithCreds, _ ) ->
-                    ( OnLoginWithCreds "at" ""
+                _ ->
+                    ( model
                     , Cmd.none
-                    , Nothing
                     )
 
-                ( GotoLogin, _ ) ->
-                    ( OnLogin "at"
-                    , Cmd.none
-                    , Nothing
+        UsernameChanged username ->
+            ( { model | username = username }
+            , Cmd.none
+            )
+
+        TogglePassword ->
+            ( { model
+                | password =
+                    if isJust model.password then
+                        Nothing
+
+                    else
+                        Just ""
+              }
+            , Cmd.none
+            )
+
+        PasswordChanged newPw ->
+            ( { model | password = Just newPw }
+            , Cmd.none
+            )
+
+        Signup ->
+            ( model
+            , case model.password of
+                Just password ->
+                    registerWithCredentials model.username password
+
+                Nothing ->
+                    registerStart model.username
+            )
+
+        Login ->
+            ( model
+            , case model.password of
+                Just password ->
+                    loginWithCredentials model.username password
+
+                Nothing ->
+                    webauthn ( "login", model.username )
+            )
+
+        GotCreationChallenge r ->
+            case r of
+                Ok creationChallengeResponse ->
+                    ( model
+                    , webauthn ( "createCredentials", creationChallengeResponse )
                     )
 
-                ( GotoSignup, _ ) ->
-                    ( OnSignup "at"
-                    , Cmd.none
-                    , Nothing
-                    )
-
-                ( Noop res, m ) ->
+                Err e ->
                     let
                         _ =
-                            Debug.log "noop" res
+                            Debug.log "WA error:" e
                     in
-                    ( m
+                    ( model, Cmd.none )
+
+        GotRegistrationResponse r ->
+            case r of
+                Ok SuccessfullyRegisteredWithCreds ->
+                    ( model
+                    , webauthn ( "establishSSEconnection", lastLoginInfo model )
+                    )
+
+                Ok (RegisteredWithCredsError _) ->
+                    ( model
                     , Cmd.none
-                    , Nothing
                     )
 
-                ( GotRememberMeResponse res, m ) ->
-                    case res of
-                        Ok "yay" ->
-                            ( m
-                            , webauthn ( "establishSSEconnection", "" )
-                            , Nothing
-                            )
+                Err e ->
+                    let
+                        _ =
+                            Debug.log "WA error:" e
+                    in
+                    ( model, Cmd.none )
 
-                        _ ->
-                            let
-                                _ =
-                                    Debug.log "nay?" res
-                            in
-                            ( m
-                            , Cmd.none
-                            , Nothing
-                            )
+        GotLoginResponse r ->
+            case r of
+                Ok SuccessfullyLoggedInWithCreds ->
+                    ( model
+                    , webauthn ( "establishSSEconnection", lastLoginInfo model )
+                    )
 
-                ( LoginUsernameChanged newUsername, OnLogin _ ) ->
-                    ( OnLogin newUsername
+                Ok LoginWithCredsNotFound ->
+                    ( { model | error = Just "User or password not correct" }
                     , Cmd.none
-                    , Nothing
                     )
 
-                ( LoginUsernameChanged newUsername, OnLoginWithCreds _ password ) ->
-                    ( OnLoginWithCreds newUsername password
-                    , Cmd.none
-                    , Nothing
-                    )
+                Err e ->
+                    let
+                        _ =
+                            Debug.log "WA error:" e
+                    in
+                    ( model, Cmd.none )
 
-                ( LoginPasswordChanged newPw, OnLoginWithCreds username _ ) ->
-                    ( OnLoginWithCreds username newPw
-                    , Cmd.none
-                    , Nothing
-                    )
 
-                ( SignupUsernameChanged newUsername, OnSignup _ ) ->
-                    ( OnSignup newUsername
-                    , Cmd.none
-                    , Nothing
-                    )
+lastLoginInfo : Model -> String
+lastLoginInfo { username, password } =
+    username
+        ++ (case password of
+                Just _ ->
+                    "===="
 
-                ( SignupUsernameChanged newUsername, OnSignupWithCreds _ password ) ->
-                    ( OnSignupWithCreds newUsername password
-                    , Cmd.none
-                    , Nothing
-                    )
-
-                ( SignupPasswordChanged newPw, OnSignupWithCreds username _ ) ->
-                    ( OnSignupWithCreds username newPw
-                    , Cmd.none
-                    , Nothing
-                    )
-
-                ( Signup username, model_ ) ->
-                    ( model_
-                    , registerStart username
-                    , Nothing
-                    )
-
-                ( SignupWithCreds username password, model_ ) ->
-                    ( model_
-                    , registerWithCredentials username password
-                    , Nothing
-                    )
-
-                ( Login username, model_ ) ->
-                    ( model_
-                    , webauthn ( "login", username )
-                    , Nothing
-                    )
-
-                ( LoginWithCreds username password, model_ ) ->
-                    ( model_
-                    , loginWithCredentials username password
-                    , Nothing
-                    )
-
-                ( GotCreationChallenge r, model_ ) ->
-                    case r of
-                        Ok creationChallengeResponse ->
-                            ( model_
-                            , webauthn ( "createCredentials", creationChallengeResponse )
-                            , Nothing
-                            )
-
-                        Err e ->
-                            let
-                                _ =
-                                    Debug.log "WA error:" e
-                            in
-                            ( model_, Cmd.none , Nothing)
-
-                ( GotRegistrationResponse r, model_ ) ->
-                    case r of
-                        Ok SuccessfullyRegisteredWithCreds ->
-                            ( model_
-                            , Cmd.none
-                            , Nothing
-                            )
-
-                        Ok (RegisteredWithCredsError e) ->
-                            ( model_
-                            , Cmd.none
-                            , Nothing
-                            )
-
-                        Err e ->
-                            let
-                                _ =
-                                    Debug.log "WA error:" e
-                            in
-                            ( model_, Cmd.none , Nothing )
-
-                ( GotLoginResponse r, model_ ) ->
-                    case r of
-                        Ok SuccessfullyLoggedInWithCreds ->
-                            ( model_
-                            , webauthn ( "establishSSEconnection", "" )
-                            , Nothing
-                            )
-
-                        Ok LoginWithCredsNotFound ->
-                            ( model_
-                            , Cmd.none
-                            , Just "User or password not correct"  
-                            )
-
-                        Err e ->
-                            let
-                                _ =
-                                    Debug.log "WA error:" e
-                            in
-                            ( model_, Cmd.none , Nothing)
-
-                ( _, model_ ) ->
-                    ( model_, Cmd.none , Nothing)
-    in
-    ( { error = mbErr,  variant = variant_}, cmd )
+                _ ->
+                    ""
+           )
 
 
 subscriptions : Model -> Sub Msg
 subscriptions _ =
     Sub.none
 
+
 view : Model -> Html Msg
 view model =
+    div [ class "auth" ]
+        [ div [ class "cards" ] [ cardView model ] ]
+
+
+cardView : Model -> Html Msg
+cardView model =
     let
-        mainContent =
+        rotation =
             case model.variant of
-                OnSignup username ->
-                    div []
-                        [ input [ value username, onInput SignupUsernameChanged ] []
-                        , button [ onClick <| Signup username ] [ text "Sign up" ]
-                        , logingOptions GotoSignup
-                        ]
+                OnLogin ->
+                    0
 
-                OnLogin username ->
-                    div []
-                        [ input [ value username, onInput LoginUsernameChanged ] []
-                        , button [ onClick <| Login username ] [ text "login" ]
-                        , logingOptions GotoLogin
-                        ]
+                OnSignup ->
+                    180
 
-                OnLoginWithCreds username password ->
-                    div []
-                        [ input [ value username, onInput LoginUsernameChanged ] []
-                        , input [ value password, onInput LoginPasswordChanged ] []
-                        , button [ onClick <| LoginWithCreds username password ] [ text "login" ]
-                        , logingOptions GotoLoginWithCreds
-                        ]
+        username =
+            model.username
 
-                OnSignupWithCreds username password ->
-                    div []
-                        [ input [ value username, onInput SignupUsernameChanged ] []
-                        , input [ value password, onInput SignupPasswordChanged ] []
-                        , button [ onClick <| SignupWithCreds username password ] [ text "sign up" ]
-                        , logingOptions GotoSignupWithCreds
-                        ]
+        ( passwordInput, toggleLoginMethod ) =
+            case model.password of
+                Just pw ->
+                    ( input [ onInput PasswordChanged, value pw, placeholder "password" ] []
+                    , a [ onClick TogglePassword ] [ text "passwordless login" ]
+                    )
+
+                Nothing ->
+                    ( text ""
+                    , a [ onClick TogglePassword ] [ text "login with password" ]
+                    )
     in
-    div []
-        [ errorFlash model
-        , mainContent
+    div [ class "card" ]
+        [ div [ class "inner", style "transform" <| "rotateY(" ++ fromInt rotation ++ "deg)" ]
+            [ div [ class "front" ]
+                [ div [ class "mini gameTitle" ] title
+                , div [ class "form" ]
+                    [ form [ onSubmit Login ]
+                        [ input [ value username, placeholder "username", onInput UsernameChanged ] []
+                        , passwordInput
+                        , button [] [ text "login" ]
+                        , if isJust model.error then
+                            errorFlash model
+
+                          else
+                            br [] []
+                        , toggleLoginMethod
+                        , br [] []
+                        , a [ onClick GotoSignup ] [ text "No account yet?" ]
+                        ]
+                    ]
+                ]
+            , div [ class "back" ]
+                [ div [ class "mini gameTitle" ] [ text "Signup" ]
+                , div [ class "form" ]
+                    [ br [] []
+                    , form [ onSubmit Signup ]
+                        [ input [ value username, placeholder "username", onInput UsernameChanged ] []
+                        , passwordInput
+                        , button [] [ text "signup" ]
+                        ]
+                    , toggleLoginMethod
+                    , br [] []
+                    , a [ onClick GotoLogin ] [ text "Already got an account?" ]
+                    , errorFlash model
+                    ]
+                ]
+            ]
         ]
+
+
+title =
+    List.map
+        (\s ->
+            span
+                (if s /= "" then
+                    [ class s ]
+
+                 else
+                    []
+                )
+                [ text s ]
+        )
+        [ "E", "thereal", " ", "L", "aws", " ", "of", " ", "M", "ystery" ]
 
 
 errorFlash : Model -> Html Msg
 errorFlash { error } =
     case error of
         Just msg ->
-            div [ class "auth-error" ] [ text msg ]
+            div [ class "authError" ] [ text msg ]
 
         Nothing ->
             text ""
-
-
-logingOptions : Msg -> Html Msg
-logingOptions from =
-    div []
-        [ if from == GotoSignup then
-            text ""
-
-          else
-            button [ class "secondary", onClick GotoSignup ] [ text "goto signup with webauthn" ]
-        , if from == GotoSignupWithCreds then
-            text ""
-
-          else
-            button [ class "secondary", onClick GotoSignupWithCreds ] [ text "goto signup with password" ]
-        , if from == GotoLogin then
-            text ""
-
-          else
-            button [ class "secondary", onClick GotoLogin ] [ text "goto login with webauthn" ]
-        , if from == GotoLoginWithCreds then
-            text ""
-
-          else
-            button [ class "secondary", onClick GotoLoginWithCreds ] [ text "goto login with password" ]
-        ]
 
 
 registerStart : String -> Cmd Msg
@@ -450,17 +431,20 @@ window.webauthnElm = {
             console.log("Login response", response);
             if (response.ok){
               console.log("Successfully logged in!", response.body);
-              window.webauthnElm.establishSSEconnection();
+              window.webauthnElm.establishSSEconnection(username);
             } else {
               console.log("Error whilst logging in!");
             }
           });
       });
   },
-  establishSSEconnection: () => {
+  establishSSEconnection: (lastLoginInfo) => {
     window.webauthnElm.incomingPort.send(['login', '']);
     const eventSource = new EventSource('/events');
     window.webauthnElm.eventSource = eventSource;
+    if (lastLoginInfo != "") {
+      localStorage.setItem('lastLoginInfo', lastLoginInfo);
+    }
     eventSource.onmessage = (event) => {
       window.webauthnElm.incomingPort.send(['event', event.data])
     }
@@ -478,7 +462,7 @@ window.webauthnElm = {
       window.webauthnElm.eventSource = null;
     }
     if (data[0] == 'establishSSEconnection') {
-      window.webauthnElm.establishSSEconnection();
+      window.webauthnElm.establishSSEconnection(data[1]);
     }
 
   },

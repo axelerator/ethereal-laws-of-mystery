@@ -283,6 +283,91 @@ body {
 }
 
 
+.auth {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image: url("/assets/images/table.png");
+  background-size: cover;
+  background-position: center;
+  overflow: hidden;
+}
+
+.auth .cards {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image: none;
+  background-color: rgba(0,0,0, 0.3);
+  overflow: hidden;
+  backdrop-filter: blur(5px) saturate(10%);
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.auth .card {
+  width: 15em;
+  height: 21em;
+  font-size: 1em;
+}
+
+.auth .card .front, .auth .card .back {
+  background-image: url("/assets/images/menu_card_bg.png");
+  background-size: cover;
+  box-shadow: 5px 5px 8px 1px rgba(0, 0, 0, 0.4);
+
+  display: block;
+}
+
+.auth .card .inner {
+  transition: transform 1s;
+}
+
+.auth .card form {
+  padding: 0 1em;
+}
+
+.auth .authError {
+  color: #E63;
+}
+
+.auth .card input {
+  background-color: #DFDDDD;
+  box-shadow: inset 0.1em 0.1em #999;
+  color: #222;
+  border-color: #222;
+}
+
+.auth .card button {
+  border-color: #222;
+  box-shadow: 0.1em 0.1em #999;
+}
+
+.auth .card .mini {
+  position: relative;
+  font-size: 0.9em;
+  font-weight: 400;
+  text-align: center;
+}
+
+.gameTitle .E,
+.gameTitle .L,
+.gameTitle .M {
+  font-weight: bold;
+  font-size: 2.3em;
+}
+.gameTitle .of {
+  font-size: 0.8em;
+  font-style: italic;
+}
+
+
 /* credit: https://jsfiddle.net/elin/7m3bL/ */
 .pyro > .before, .pyro > .after {
   position: absolute;

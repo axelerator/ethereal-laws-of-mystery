@@ -3,7 +3,7 @@ use crate::{
     startup::AppState,
 };
 
-use auth::{login_with_credentials, LoginCredentials, LoginCredentialsResponse, USER_INFO};
+use auth::{login, login_with_credentials, LoginCredentials, LoginCredentialsResponse, USER_INFO};
 use axum::{
     extract::Extension,
     http::StatusCode,
@@ -199,7 +199,6 @@ async fn sse_handler(
             .interval(Duration::from_secs(1))
             .text("keep-alive-text"),
     )
-
 }
 
 pub async fn remember_handler(session: ReadableSession) -> Result<impl IntoResponse, Infallible> {
@@ -251,7 +250,7 @@ pub enum RegisterCredentialsResponse {
 
 pub async fn register_with_creds(
     Extension(app_state): Extension<AppState>,
-    mut session: WritableSession,
+    session: WritableSession,
     Json(creds): Json<RegisterCredentials>,
 ) -> Json<RegisterCredentialsResponse> {
     let users = app_state.users.lock().await;
@@ -260,15 +259,11 @@ pub async fn register_with_creds(
         &creds.password,
         &app_state.connection.lock().await,
     );
+    drop(users);
 
     match user {
         Ok(user) => {
-            let session_id = SessionId::new();
-            let user_info = (session_id.clone(), user.id);
-            session
-                .insert(USER_INFO, user_info)
-                .expect("Unable to write to session");
-
+            login(user.id, app_state, session).await;
             Json(RegisterCredentialsResponse::SuccessfullyRegisteredWithCreds)
         }
         Err(e) => Json(RegisterCredentialsResponse::RegisteredWithCredsError(e)),

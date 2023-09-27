@@ -1,4 +1,5 @@
-<html>
+<!DOCTYPE html>
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -14,7 +15,8 @@
 
 
   var app = Elm.Main.init({
-    node: document.getElementById('myapp')
+    node: document.getElementById('myapp'),
+    flags: localStorage.getItem("lastLoginInfo") || ""
   });
 
   const hoist = (data) => {

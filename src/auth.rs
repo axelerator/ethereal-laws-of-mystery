@@ -324,7 +324,7 @@ pub async fn login_with_credentials(
 
 pub const USER_INFO: &str = "USER_INFO";
 
-async fn login(user_unique_id: Uuid, app_state: AppState, mut session: WritableSession) {
+pub async fn login(user_unique_id: Uuid, app_state: AppState, mut session: WritableSession) {
     session
         .insert("logged_in_user", user_unique_id)
         .expect("Unable to write to session");

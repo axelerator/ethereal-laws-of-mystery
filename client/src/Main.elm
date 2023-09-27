@@ -2,14 +2,10 @@ port module Main exposing (main)
 
 import Browser
 import Game
-import Hades exposing (ToBackend(..), ToFrontend(..), ToFrontendEnvelope(..), toFrontendDecoder, toFrontendEnvelopeDecoder)
+import Hades exposing (ToBackend(..), ToFrontend(..), ToFrontendEnvelope(..), toFrontendEnvelopeDecoder)
 import Home
-import Html exposing (Html, button, div, h1, input, text)
-import Html.Attributes exposing (value)
-import Html.Events exposing (onClick, onInput)
+import Html exposing (Html)
 import Json.Decode as Decode
-import Task
-import Time
 import WebAuthn
 
 
@@ -24,7 +20,11 @@ logout =
     portOut ( "logout", "" )
 
 
-main : Program () Model Msg
+type alias Flags =
+    String
+
+
+main : Program Flags Model Msg
 main =
     Browser.element
         { init = init
@@ -40,11 +40,11 @@ type Model
     | OnGame Game.Model
 
 
-init : () -> ( Model, Cmd Msg )
-init _ =
+init : Flags -> ( Model, Cmd Msg )
+init lastLoginInfo =
     let
         ( model, cmd, cmd_ ) =
-            WebAuthn.initOnLogin { webauthn = portOut } "at"
+            WebAuthn.initOnLogin { webauthn = portOut } lastLoginInfo
     in
     ( OnLogin <| model
     , Cmd.batch [ Cmd.map ForWebauthn cmd, Cmd.map ForWebauthn cmd_ ]
@@ -66,10 +66,11 @@ globalActions =
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case ( msg, model ) of
-        (FromPort _, OnLogin _) ->
-          let
-             (model__, cmd) =  Home.init
-          in
+        ( FromPort _, OnLogin _ ) ->
+            let
+                ( model__, cmd ) =
+                    Home.init
+            in
             ( OnHome model__
             , Cmd.map ForHome cmd
             )
@@ -86,7 +87,7 @@ update msg model =
                             noop
 
                         Unauthorized ->
-                            ( Tuple.first <| init ()
+                            ( Tuple.first <| init ""
                             , logout
                             )
 
@@ -125,7 +126,7 @@ update msg model =
                             noop
 
                         Unauthorized ->
-                            ( Tuple.first <| init ()
+                            ( Tuple.first <| init ""
                             , logout
                             )
 
@@ -179,19 +180,19 @@ update msg model =
                     Cmd.map ForGame cmd_
             in
             case Game.returnToLobby model_ msg_ of
-              Just (width, height) ->
-                let
-                    (m, cmd__) = Home.withOpenMenu width height
-                in
-                
-                  ( OnHome m
-                  , Cmd.map ForHome cmd__
-                  )
+                Just ( width, height ) ->
+                    let
+                        ( m, cmd__ ) =
+                            Home.withOpenMenu width height
+                    in
+                    ( OnHome m
+                    , Cmd.map ForHome cmd__
+                    )
 
-              _ ->
-                ( OnGame model__
-                , cmd
-                )
+                _ ->
+                    ( OnGame model__
+                    , cmd
+                    )
 
         ( ForWebauthn msg_, OnLogin model_ ) ->
             let
@@ -216,6 +217,7 @@ subscriptions model =
         , case model of
             OnGame model_ ->
                 Sub.map ForGame <| Game.subscriptions model_
+
             OnHome model_ ->
                 Sub.map ForHome <| Home.subscriptions model_
 
