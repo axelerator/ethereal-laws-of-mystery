@@ -1148,7 +1148,7 @@ viewportInfoFor numOfOpponents size =
             (height * 0.5) - (cardHeight * (centerRowCardGutterFactor + 0.25))
 
         deckPosX =
-            (width * 0.5) - (centerRowCardGutterFactor * cardWidth)
+            (width * 0.5) - (1.5 * cardWidth)
 
         deckPosY =
             centerRowY + (centerRowCardGutterFactor * cardHeight)
@@ -1162,7 +1162,7 @@ viewportInfoFor numOfOpponents size =
             }
 
         discardPilePos =
-            { pos = point (deckPosX + (centerRowCardGutterFactor * cardWidth)) deckPosY
+            { pos = point (deckPosX + (1.5 * cardWidth)) deckPosY
             , degrees = 0
             , opacity = 1.0
             , flip = 0
