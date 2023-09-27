@@ -254,11 +254,9 @@ pub async fn register_with_creds(
     Json(creds): Json<RegisterCredentials>,
 ) -> Json<RegisterCredentialsResponse> {
     let users = app_state.users.lock().await;
-    let user = users.register_with_credentials(
-        &creds.username,
-        &creds.password,
-        &app_state.connection.lock().await,
-    );
+    let user = users
+        .register_with_credentials(&creds.username, &creds.password)
+        .await;
     drop(users);
 
     match user {

@@ -138,8 +138,7 @@ pub async fn finish_register(
     {
         Ok(sk) => {
             let mut users_guard = app_state.users.lock().await;
-            let connection = app_state.connection.lock().await;
-            users_guard.register(user_unique_id, &sk, username, &connection);
+            users_guard.register(user_unique_id, &sk, username).await;
             StatusCode::OK
         }
         Err(e) => {
@@ -196,20 +195,13 @@ pub async fn start_authentication(
     // Get the set of keys that the user possesses
     let users_guard = app_state.users.lock().await;
 
-    let connection = app_state.connection.lock().await;
     // Look up their unique id from the username
     let user = users_guard
-        .by_username(&username, &connection)
+        .by_username(&username)
+        .await
         .ok_or(WebauthnError::UserNotFound)?;
 
-    /*
-    let allow_credentials = users_guard
-        .keys
-        .get(&user.id)
-        .ok_or(WebauthnError::UserHasNoCredentials)?;
-        */
-    let allow_credentials = users_guard.passkey_credentials_for(&user.id, &connection);
-    drop(connection);
+    let allow_credentials = users_guard.passkey_credentials_for(&user.id).await;
 
     if allow_credentials.is_empty() {
         return Err(WebauthnError::UserHasNoCredentials);
@@ -268,15 +260,15 @@ pub async fn finish_authentication(
         Ok(auth_result) => {
             let users_guard = app_state.users.lock().await;
 
-            let connection = app_state.connection.lock().await;
-            let mut allow_credentials =
-                users_guard.passkey_credentials_for(&user_unique_id, &connection);
+            let mut allow_credentials = users_guard.passkey_credentials_for(&user_unique_id).await;
 
             if allow_credentials.is_empty() {
                 return Err(WebauthnError::UserHasNoCredentials);
             }
 
-            users_guard.update_credentials(&mut allow_credentials, &auth_result, &connection);
+            users_guard
+                .update_credentials(&mut allow_credentials, &auth_result)
+                .await;
 
             StatusCode::OK
         }
@@ -309,8 +301,7 @@ pub async fn login_with_credentials(
     password: String,
 ) -> LoginCredentialsResponse {
     let users = app_state.users.lock().await;
-    let user =
-        users.by_username_and_password(&username, &password, &app_state.connection.lock().await);
+    let user = users.by_username_and_password(&username, &password).await;
     drop(users);
     match user {
         Some(user) => {

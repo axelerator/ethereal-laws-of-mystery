@@ -7,8 +7,8 @@ use argon2::{
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_rusqlite::*;
-use std::collections::HashMap;
-use tokio::sync::MutexGuard;
+use std::{collections::HashMap, sync::Arc};
+use tokio::sync::{Mutex, MutexGuard};
 use tracing::debug;
 use webauthn_rs::prelude::AuthenticationResult;
 use webauthn_rs::prelude::Passkey;
@@ -37,6 +37,7 @@ pub struct Users {
     pub name_to_id: HashMap<String, Uuid>,
     pub keys: HashMap<Uuid, Vec<Passkey>>,
     pub salt: SaltString,
+    connection: Arc<Mutex<Connection>>,
 }
 
 pub struct PersistedPasskey {
@@ -45,26 +46,22 @@ pub struct PersistedPasskey {
 }
 
 impl Users {
-    pub fn new() -> Users {
+    pub fn new(connection: Arc<Mutex<Connection>>) -> Users {
         let salt = SaltString::from_b64("MTIzNDU2Nzg5MA").unwrap();
         Users {
             name_to_id: HashMap::new(),
             keys: HashMap::new(),
             salt,
+            connection,
         }
     }
 
-    pub fn register(
-        &mut self,
-        user_unique_id: UserId,
-        sk: &Passkey,
-        username: String,
-        connection: &MutexGuard<Connection>,
-    ) {
+    pub async fn register(&mut self, user_unique_id: UserId, sk: &Passkey, username: String) {
         self.name_to_id.insert(username.clone(), user_unique_id);
         let passkey_toml: String = toml::to_string(&sk).expect("Failed to serialize PassKey");
+        let connection = self.connection.lock().await;
         let user = self
-            .by_username(&username, connection)
+            .by_username_(&username, &connection)
             .or_else(|| {
                 let user = User {
                     id: user_unique_id,
@@ -89,7 +86,12 @@ impl Users {
             .unwrap();
     }
 
-    pub fn by_username(&self, username: &str, connection: &MutexGuard<Connection>) -> Option<User> {
+    pub async fn by_username(&self, username: &str) -> Option<User> {
+        let connection = self.connection.lock().await;
+        self.by_username_(username, &connection)
+    }
+
+    fn by_username_(&self, username: &str, connection: &MutexGuard<Connection>) -> Option<User> {
         let mut statement = connection
             .prepare("SELECT * FROM users WHERE name = :username")
             .unwrap();
@@ -101,12 +103,8 @@ impl Users {
         res.next().map(|row| row.unwrap())
     }
 
-    pub fn by_username_and_password(
-        &self,
-        username: &str,
-        password: &str,
-        connection: &MutexGuard<Connection>,
-    ) -> Option<User> {
+    pub async fn by_username_and_password(&self, username: &str, password: &str) -> Option<User> {
+        let connection = self.connection.lock().await;
         let argon2 = Argon2::default();
         let hashed_password = argon2
             .hash_password(password.as_bytes(), &self.salt)
@@ -129,11 +127,9 @@ impl Users {
         res.next().map(|row| row.unwrap())
     }
 
-    pub fn passkey_credentials_for(
-        &self,
-        user_id: &UserId,
-        connection: &MutexGuard<Connection>,
-    ) -> Vec<PersistedPasskey> {
+    pub async fn passkey_credentials_for(&self, user_id: &UserId) -> Vec<PersistedPasskey> {
+        let connection = self.connection.lock().await;
+
         let mut stmt = connection
             .prepare("SELECT ROWID, payload FROM credentials WHERE user_id = :user_id AND type = 'passkey'")
             .unwrap();
@@ -152,12 +148,12 @@ impl Users {
         .collect()
     }
 
-    pub fn update_credentials(
+    pub async fn update_credentials(
         &self,
         credentials: &mut Vec<PersistedPasskey>,
         auth_result: &AuthenticationResult,
-        connection: &MutexGuard<Connection>,
     ) {
+        let connection = self.connection.lock().await;
         // Update the credential counter, if possible.
         credentials.iter_mut().for_each(|ppk| {
             // This will update the credential if it's the matching
@@ -175,13 +171,13 @@ impl Users {
         });
     }
 
-    pub fn register_with_credentials(
+    pub async fn register_with_credentials(
         &self,
         username: &str,
         password: &str,
-        connection: &MutexGuard<Connection>,
     ) -> std::result::Result<User, String> {
-        let user = self.by_username(&username, connection);
+        let connection = self.connection.lock().await;
+        let user = self.by_username_(&username, &connection);
 
         match user {
             Some(_) => Err("Username already taken".to_string()),

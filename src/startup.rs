@@ -601,10 +601,10 @@ impl AppState {
         // Consume the builder and create our webauthn instance.
         let webauthn = Arc::new(builder.build().expect("Invalid configuration"));
 
-        let users = Arc::new(Mutex::new(Users::new()));
         let connection = Arc::new(Mutex::new(
             Connection::open("db.sqlite").expect("Didn't find sqlite DB"),
         ));
+        let users = Arc::new(Mutex::new(Users::new(connection.clone())));
         let realms = Arc::new(RwLock::new(Realms::new()));
         let realm_members = Arc::new(RwLock::new(RealmMembersStore::default()));
         let sessions_by_user = Arc::new(RwLock::new(HashMap::new()));
