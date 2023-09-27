@@ -1,13 +1,11 @@
 module Cards exposing (..)
 
-import Animation exposing (Animation)
 import Browser.Events exposing (onAnimationFrameDelta)
 import Ease exposing (outCubic)
 import Html exposing (Attribute, Html, p)
 import Html.Attributes exposing (id, style)
 import Pixels
 import Point2d exposing (toPixels)
-import PseudoRandom
 import Rectangle2d
 import String exposing (fromFloat)
 import Vector2d
