@@ -4,3 +4,4 @@
 /client/main.js
 .DS_Store
 self_signed_certs
+/prom
