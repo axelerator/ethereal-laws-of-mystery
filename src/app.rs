@@ -1,14 +1,15 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use elm_rs::{Elm, ElmDecode, ElmEncode};
 use serde::{Deserialize, Serialize};
+use tokio::sync::Mutex;
 use tracing::error;
 
 use crate::{
     game::{Game, GameInfo, ToGame, Transition},
     hades::RealmId,
     startup::{Cmd, Realm},
-    users::{SessionId, UserId},
+    users::{SessionId, UserId, Users},
 };
 #[derive(Debug, Clone)]
 pub enum Msg {
@@ -89,20 +90,27 @@ impl RealmModel {
         }
     }
 
-    pub fn update(self, msg: Msg, realm: Realm) -> (RealmModel, Cmd) {
+    pub async fn update(
+        self,
+        msg: Msg,
+        realm: Realm,
+        users: &Arc<Mutex<Users>>,
+    ) -> (RealmModel, Cmd) {
         match (self, msg) {
             (RealmModel::Lobby(lobby), Msg::NewGameStarted(new_realm, user_ids)) => {
-                let game_start =
-                    |realm_id| ToFrontend::ToLobbyFrontend(ToFrontendLobby::GameStart(realm_id));
-                let cmds = user_ids
-                    .into_iter()
-                    .map(|user_id| new_realm.add_user(user_id, game_start));
+                let cmds = user_ids.into_iter().map(|user_id| {
+                    let game_start = |realm_id| {
+                        ToFrontend::ToLobbyFrontend(ToFrontendLobby::GameStart(realm_id))
+                    };
+                    new_realm.add_user(user_id, game_start)
+                });
                 (RealmModel::Lobby(lobby), new_realm.batch(cmds))
             }
             (RealmModel::Game(game), Msg::PlayerJoined(user_id)) => {
-                let game_info = game.game_info(user_id);
+                let updated_game = game.resolve_player_names(users).await;
+                let game_info = updated_game.game_info(user_id);
                 (
-                    RealmModel::Game(game),
+                    RealmModel::Game(updated_game),
                     realm.to_user(
                         user_id,
                         [ToFrontend::EnteredGame(realm.id.clone(), game_info)],

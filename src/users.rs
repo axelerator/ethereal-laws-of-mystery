@@ -86,6 +86,25 @@ impl Users {
             .unwrap();
     }
 
+    pub async fn by_ids(&self, ids: Vec<UserId>) -> Vec<User> {
+        let connection = self.connection.lock().await;
+        let mut statement = connection
+            .prepare("SELECT * FROM users WHERE id in rarray(:ids)")
+            .unwrap();
+        let ids_strs: Vec<String> = ids.into_iter().map(|id| id.to_string()).collect();
+        let values: Vec<rusqlite::types::Value> = ids_strs
+            .into_iter()
+            .map(rusqlite::types::Value::from)
+            .collect();
+        let ptr = std::rc::Rc::new(values);
+
+        let res = statement
+            .query_map(&[(":ids", &ptr)], |row| Ok(from_row::<User>(row).unwrap()))
+            .unwrap();
+
+        res.map(|u| u.unwrap()).collect()
+    }
+
     pub async fn by_username(&self, username: &str) -> Option<User> {
         let connection = self.connection.lock().await;
         self.by_username_(username, &connection)

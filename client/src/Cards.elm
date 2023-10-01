@@ -58,6 +58,7 @@ type alias ViewportInfo =
     , deckPos : Props
     , discardPilePos : Props
     , numOfOpponents : Int
+    , namePositions : List Props
     }
 
 

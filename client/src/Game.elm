@@ -15,6 +15,7 @@ import Cards
         , ViewportInfo
         , addCard
         , addCards
+        , cssTransforms
         , empty
         , idOf
         , idsOf
@@ -707,7 +708,13 @@ view model =
                         ]
 
                 GameOver False ->
-                    div [ class "lostLabel" ] [ div [] [ text "Better luck next time" ] ]
+                    div [ class "lostLabel" ]
+                        [ div []
+                            [ div [] [ text "Better luck next time" ]
+                            , br [] []
+                            , button [ onClick ReturnToLobby, class "in-game-button" ] [ text "return to lobby" ]
+                            ]
+                        ]
 
                 _ ->
                     text ""
@@ -715,13 +722,32 @@ view model =
         turnCSS =
             "turn-" ++ fromInt model.turn
     in
-    div []
+    div [] <|
         [ inlineCSS model.viewportInfo
         , wonDiv
         , fadeMsgView model.fadingMsg
         , div [ class <| turnCSS ++ " cards " ++ wonCSS ]
             (cardsView model ++ draggedCardView model.draggedCard)
         ]
+            ++ playerNames model
+
+
+playerNames : Model -> List (Html Msg)
+playerNames { opponents, viewportInfo } =
+    let
+        nameView name props =
+            div (class "opponentName" :: (Tuple.first <| cssTransforms props)) [ text name ]
+    in
+    List.map2 nameView ("Me" :: List.map .name opponents) viewportInfo.namePositions
+
+
+oppNamePos : Int -> Int -> Props
+oppNamePos totalOponents opPos =
+    { pos = point 0 0
+    , opacity = 1.0
+    , degrees = 10
+    , flip = 0
+    }
 
 
 fadeMsgView : Maybe ( String, Float ) -> Html Msg
@@ -1019,12 +1045,13 @@ screenPos viewportInfo cardsModel loc =
 
                 2 ->
                     if viewportInfo.numOfOpponents == 2 then
-                      handRightOp viewportInfo cardsModel opponentId p
+                        handRightOp viewportInfo cardsModel opponentId p
+
                     else
-                      handVisAVis viewportInfo cardsModel opponentId p
+                        handVisAVis viewportInfo cardsModel opponentId p
 
                 _ ->
-                  handRightOp viewportInfo cardsModel opponentId p
+                    handRightOp viewportInfo cardsModel opponentId p
 
         InFlight x y ->
             { pos = point x y
@@ -1046,6 +1073,7 @@ screenPos viewportInfo cardsModel loc =
             , degrees = 0
             , flip = 0
             }
+
 
 handRightOp : ViewportInfo -> CardsModel -> OpponentId -> Int -> Props
 handRightOp viewportInfo cardsModel opponentId p =
@@ -1070,7 +1098,6 @@ handRightOp viewportInfo cardsModel opponentId p =
     , degrees = 90 - (startSpread + degreePerCard * toFloat p)
     , flip = 180
     }
-
 
 
 handLeftOp : ViewportInfo -> CardsModel -> OpponentId -> Int -> Props
@@ -1173,6 +1200,48 @@ viewportInfoFor numOfOpponents size =
 
         handOriginY =
             height - cardHeight
+
+        myName =
+            { pos = point (width * 0.5) (height - cardHeight * 1.2)
+            , degrees = 0
+            , opacity = 1.0
+            , flip = 0
+            }
+
+        leftOpName =
+            { pos = point (cardHeight * 0.7) (height * 0.5)
+            , degrees = 90
+            , opacity = 1.0
+            , flip = 0
+            }
+
+        rightOpName =
+            { pos = point (width - (cardHeight * 0.7)) (height * 0.5)
+            , degrees = -90
+            , opacity = 1.0
+            , flip = 0
+            }
+
+        topOpName =
+            { pos = point (width * 0.5) (cardHeight * 0.5)
+            , degrees = 0
+            , opacity = 1.0
+            , flip = 0
+            }
+
+        namePositions =
+            case numOfOpponents of
+                0 ->
+                    [ myName ]
+
+                1 ->
+                    [ myName, topOpName ]
+
+                2 ->
+                    [ myName, leftOpName, rightOpName ]
+
+                _ ->
+                    [ myName, leftOpName, topOpName, rightOpName ]
     in
     { size = size
     , handOrigin = point handOriginX handOriginY
@@ -1186,6 +1255,7 @@ viewportInfoFor numOfOpponents size =
     , deckPos = deckPos
     , discardPilePos = discardPilePos
     , numOfOpponents = numOfOpponents
+    , namePositions = namePositions
     }
 
 

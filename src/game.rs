@@ -1,9 +1,13 @@
 use std::collections::HashSet;
 
-use crate::{hades::RealmId, users::UserId};
+use crate::{
+    hades::RealmId,
+    users::{UserId, Users},
+};
 use elm_rs::{Elm, ElmDecode, ElmEncode};
 use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
+use tokio::sync::Mutex;
 use tracing::{debug, error};
 
 #[derive(Elm, ElmDecode, Serialize, Debug, Clone)]
@@ -72,12 +76,17 @@ pub type RelativeOpponent = usize;
 
 pub struct Player {
     id: UserId,
+    name: Option<String>,
     hand: Vec<CardContent>,
 }
 
 impl Player {
     pub fn new(id: UserId) -> Player {
-        Player { id, hand: vec![] }
+        Player {
+            id,
+            hand: vec![],
+            name: None,
+        }
     }
 }
 
@@ -401,7 +410,7 @@ impl Game {
             .into_iter()
             .skip(1)
             .map(|p| Opponent {
-                name: p.id.to_string(),
+                name: p.name.as_ref().map(|s| s.clone()).unwrap_or("".to_string()),
                 hand_size: p.hand.len(),
             })
             .collect();
@@ -498,5 +507,20 @@ impl Game {
             CardContent::SwapOperators => true,
             _ => false,
         }
+    }
+
+    pub(crate) async fn resolve_player_names(mut self, users: &Mutex<Users>) -> Game {
+        if self.players[0].name.is_some() {
+            return self; // already resolved
+        }
+        let user_ids = self.players.iter().map(|u| u.id).collect();
+        let users = users.lock().await;
+        let users = users.by_ids(user_ids).await;
+        for player in self.players.iter_mut() {
+            if let Some(user) = users.iter().find(|u| u.id == player.id) {
+                player.name = Some(user.name.clone());
+            }
+        }
+        self
     }
 }

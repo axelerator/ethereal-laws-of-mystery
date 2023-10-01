@@ -329,6 +329,7 @@ pub async fn new_realm(
     sessions_by_user: SessionsByUser,
     realm_mngr_inbox: RealmManagerInbox,
     hint: Option<NewRealmHint>,
+    users: Arc<Mutex<Users>>,
 ) -> Sender<RealmThreadMsg> {
     let (cmd_inbox, mut cmd_receiver) = mpsc::channel::<Cmd>(32);
     tokio::spawn(async move {
@@ -367,7 +368,7 @@ pub async fn new_realm(
                 }
                 RealmThreadMsg::BackendMsg(msg, realm_id) => {
                     let realm = Realm { id: realm_id };
-                    let (updated_model, cmd) = model.update(msg, realm);
+                    let (updated_model, cmd) = model.update(msg, realm, &users).await;
                     model = updated_model;
                     if let Err(_) = cmd_inbox.send(cmd).await {
                         todo!("Client disconnected, stop sending");
@@ -377,7 +378,7 @@ pub async fn new_realm(
                     let realm = Realm { id: realm_id };
                     let msg = model.joined(user_id, session_id);
                     if let Some(msg) = msg {
-                        let (updated_model, cmd) = model.update(msg, realm);
+                        let (updated_model, cmd) = model.update(msg, realm, &users).await;
                         model = updated_model;
                         if let Err(_) = cmd_inbox.send(cmd).await {
                             todo!("Client disconnected, stop sending");
@@ -519,6 +520,7 @@ impl Realms {
         sessions_by_user: SessionsByUser,
         realm_mngr_inbox: RealmManagerInbox,
         hint: Option<NewRealmHint>,
+        users: Arc<Mutex<Users>>,
     ) {
         let inbox = new_realm(
             realm_members,
@@ -526,6 +528,7 @@ impl Realms {
             sessions_by_user,
             realm_mngr_inbox,
             hint,
+            users,
         )
         .await;
         debug!("Adding new realm: {:?}", id);
@@ -539,6 +542,7 @@ impl Realms {
         sessions_by_user: SessionsByUser,
         realm_mngr_inbox: RealmManagerInbox,
         hint: Option<NewRealmHint>,
+        users: Arc<Mutex<Users>>,
     ) -> RealmId {
         let realm_id = RealmId::Realm(Uuid::new_v4().to_string());
         self.create_realm_with_id(
@@ -548,6 +552,7 @@ impl Realms {
             sessions_by_user,
             realm_mngr_inbox,
             hint,
+            users,
         )
         .await;
         realm_id
@@ -559,6 +564,7 @@ impl Realms {
         inboxes: InboxesBySession,
         sessions_by_user: SessionsByUser,
         realm_mngr_inbox: RealmManagerInbox,
+        users: Arc<Mutex<Users>>,
     ) {
         let id = RealmId::Lobby;
         self.create_realm_with_id(
@@ -568,6 +574,7 @@ impl Realms {
             sessions_by_user,
             realm_mngr_inbox,
             None,
+            users,
         )
         .await;
     }
@@ -601,9 +608,9 @@ impl AppState {
         // Consume the builder and create our webauthn instance.
         let webauthn = Arc::new(builder.build().expect("Invalid configuration"));
 
-        let connection = Arc::new(Mutex::new(
-            Connection::open("db.sqlite").expect("Didn't find sqlite DB"),
-        ));
+        let connection = Connection::open("db.sqlite").expect("Didn't find sqlite DB");
+        rusqlite::vtab::array::load_module(&connection).unwrap();
+        let connection = Arc::new(Mutex::new(connection));
         let users = Arc::new(Mutex::new(Users::new(connection.clone())));
         let realms = Arc::new(RwLock::new(Realms::new()));
         let realm_members = Arc::new(RwLock::new(RealmMembersStore::default()));
@@ -618,6 +625,7 @@ impl AppState {
         let sessions_by_user_ = sessions_by_user.clone();
         let realm_mngr_inbox_ = realm_mngr_inbox.clone();
         let realm_members_ = realm_members.clone();
+        let users_ = users.clone();
         tokio::spawn(async move {
             while let Some(msg) = realm_mngr_receiver.recv().await {
                 match msg {
@@ -633,6 +641,7 @@ impl AppState {
                                 sessions_by_user_.clone(),
                                 realm_mngr_inbox_.clone(),
                                 Some(hint),
+                                users_.clone(),
                             )
                             .await;
                         realms_
@@ -656,6 +665,7 @@ impl AppState {
                 events_inbox_by_session_id.clone(),
                 sessions_by_user.clone(),
                 realm_mngr_inbox,
+                users.clone(),
             )
             .await;
         AppState {
