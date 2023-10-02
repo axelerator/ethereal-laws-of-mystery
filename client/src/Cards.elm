@@ -176,6 +176,23 @@ addCardNoAni ( location, content ) (CardsModel ({ cards, cardIdGen } as rest)) =
     , newCard
     )
 
+removeCards :
+    CardPositions location cardContent
+    -> List CardId
+    -> CardsModel location cardContent
+    -> CardsModel location cardContent
+removeCards cardPositions cardIds ((CardsModel details) as model) =
+    let
+        ( extracted_cards, restCards) =
+            List.partition (\card -> List.member card.id cardIds) details.cards
+
+    in
+    if List.isEmpty extracted_cards then
+            model 
+    else
+             CardsModel
+                { details | cards = restCards }
+                |> updateAni cardPositions
 
 removeCard :
     CardPositions location cardContent

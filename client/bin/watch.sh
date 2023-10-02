@@ -17,4 +17,4 @@ fi
 
 dir=$(dirname $0)/..
 elm make $dir/src/Main.elm --output=main.js
-fswatch -o $dir/src/** | xargs -n1 -I{} elm make $dir/src/Main.elm --output=main.js
+#fswatch -o $dir/src/** | xargs -n1 -I{} elm make $dir/src/Main.elm --output=main.js

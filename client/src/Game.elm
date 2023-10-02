@@ -23,6 +23,7 @@ import Cards
         , interpolate
         , locationOf
         , move
+        , removeCards
         , moveCardTo
         , point
         , px
@@ -453,6 +454,10 @@ update _ msg model =
                     ( model
                     , Cmd.none
                     )
+                Shuffle pileSize ->
+                    ( shuffle model pileSize
+                    , Cmd.none
+                    )
 
         GotSendResponse _ ->
             ( model, Cmd.none )
@@ -590,6 +595,15 @@ update _ msg model =
             , Cmd.none
             )
 
+shuffle : Model -> Int -> Model
+shuffle model pileSize =
+  let
+      discardCardIds = idsOf isOnDiscardPile model.cards
+  in
+  { model
+  | pileSize = pileSize
+  , cards = removeCards (cardPositions model) (Debug.log "discarded" discardCardIds) model.cards
+  }
 
 theyPlayed : Model -> RelativeOpponent -> Location -> Location -> CardContent -> RelativeOpponent -> Model
 theyPlayed model whoPlayed from to content nextPlayer =
@@ -964,8 +978,11 @@ deckView viewportInfo deckSize =
         deckCard =
             div attributes [ viewCardContent attrsInner (NumberCard 1) ]
     in
-    div [ class "deck-stack" ]
-        [ deckCard, stack deckSize attrs ]
+    if deckSize > 0 then
+      div [ class "deck-stack" ]
+          [ deckCard, stack deckSize attrs ]
+    else
+      text ""
 
 
 cardsView : Model -> List (Html Msg)

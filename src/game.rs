@@ -70,6 +70,7 @@ pub enum Transition {
     ILost,
     TurnChanged(RelativeOpponent),
     GameEnded(RealmId),
+    Shuffle(usize),
 }
 
 pub type RelativeOpponent = usize;
@@ -108,12 +109,12 @@ fn deck() -> Vec<CardContent> {
     let mut cards = vec![];
     for number in 1..10 {
         cards.push(CardContent::NumberCard(number));
-        cards.push(CardContent::NumberCard(number));
-        cards.push(CardContent::NumberCard(number));
-        cards.push(CardContent::NumberCard(number));
+        //cards.push(CardContent::NumberCard(number));
+        //cards.push(CardContent::NumberCard(number));
+        //cards.push(CardContent::NumberCard(number));
     }
 
-    for _ in 0..4 {
+    for _ in 0..1 {
         cards.push(CardContent::OperatorCard(Operator::Plus));
         cards.push(CardContent::OperatorCard(Operator::Minus));
         cards.push(CardContent::OperatorCard(Operator::Times));
@@ -241,7 +242,7 @@ impl Game {
                     transitions.extend(game_over_transition);
                     self.winner = Some(*user);
                 }
-                (self, transitions)
+                self.shuffle_after_play(transitions)
             }
             Ok(MoveType::SwapOperators) => {
                 let player = self.players.iter_mut().find(|p| &p.id == user).unwrap();
@@ -284,7 +285,7 @@ impl Game {
                     transitions.extend(game_over_transition);
                     self.winner = Some(*user);
                 }
-                (self, transitions)
+                self.shuffle_after_play(transitions)
             }
         }
     }
@@ -335,18 +336,58 @@ impl Game {
         self.players.iter().find(|p| &p.id == user)
     }
 
+    fn shuffle(&mut self) {
+        self.pile = self
+            .discard_pile
+            .drain(0..self.discard_pile.len())
+            .collect();
+        let mut rng = rand::thread_rng();
+        self.pile.shuffle(&mut rng);
+    }
+
+    fn shuffle_after_play(mut self, mut transitions: Vec<(UserId, Transition)>) -> GameChanger {
+        if !self.pile.is_empty() || self.discard_pile.is_empty() {
+            return (self, transitions);
+        }
+
+        self.pile = self
+            .discard_pile
+            .drain(0..self.discard_pile.len())
+            .collect();
+        let mut rng = rand::thread_rng();
+        self.pile.shuffle(&mut rng);
+
+        for player in self.players.iter() {
+            transitions.push((player.id, Transition::Shuffle(self.pile.len())));
+        }
+
+        (self, transitions)
+    }
+
     fn draw(mut self, user: &UserId, n: usize) -> GameChanger {
         if user != &self.current_player {
             error!("It's not this players turn");
             return (self, vec![]);
         }
-        let drawn_cards: Vec<CardContent> = self.pile.drain(0..n).collect();
+        let mut drawn_cards: Vec<CardContent> = vec![];
+        let mut drawn_cards_after_shuffle: Vec<CardContent> = vec![];
+        let mut with_shuffle = false;
+        if n > self.pile.len() {
+            let first_draw = self.pile.len();
+            drawn_cards = self.pile.drain(0..first_draw).collect();
+            with_shuffle = true;
+            self.shuffle();
+            let mut second_draw = n - first_draw;
+            if second_draw > self.pile.len() {
+                second_draw = self.pile.len();
+            }
+            drawn_cards_after_shuffle = self.pile.drain(0..second_draw).collect();
+        } else {
+            drawn_cards = self.pile.drain(0..n).collect();
+        }
+
         let mut transitions = vec![];
         let next_player_id = self.proceed_to_next_player();
-        println!(
-            "After draw of {:?} next player is {:?}",
-            user, next_player_id
-        );
         for drawn_card in drawn_cards.iter() {
             for player in self.players.iter() {
                 if &player.id == user {
@@ -362,6 +403,33 @@ impl Game {
                 }
             }
         }
+        if with_shuffle {
+            for player in self.players.iter() {
+                transitions.push((player.id, Transition::Shuffle(self.pile.len())));
+            }
+        }
+        for drawn_card in drawn_cards_after_shuffle.iter() {
+            for player in self.players.iter() {
+                if &player.id == user {
+                    transitions.push((*user, Transition::IDraw(drawn_card.clone())));
+                } else {
+                    transitions.push((
+                        player.id,
+                        Transition::TheyDraw(
+                            self.player_relative_to(user, &player.id),
+                            self.player_relative_to(&player.id, &next_player_id),
+                        ),
+                    ));
+                }
+            }
+        }
+        if self.pile.is_empty() {
+            self.shuffle();
+            for player in self.players.iter() {
+                transitions.push((player.id, Transition::Shuffle(self.pile.len())));
+            }
+        }
+
         let player = self
             .players
             .iter_mut()

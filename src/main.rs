@@ -85,6 +85,7 @@ fn register_custom_metrics() {
 #[tokio::main]
 async fn main() {
     register_custom_metrics();
+    /*
     let config = RustlsConfig::from_pem_file(
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("self_signed_certs")
@@ -97,6 +98,7 @@ async fn main() {
     )
     .await
     .unwrap();
+    */
 
     tracing_subscriber::registry()
         .with(

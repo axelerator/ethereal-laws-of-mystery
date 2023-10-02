@@ -243,6 +243,7 @@ type Transition
     | ILost
     | TurnChanged (Int)
     | GameEnded (RealmId)
+    | Shuffle (Int)
 
 
 transitionDecoder : Json.Decode.Decoder Transition
@@ -272,6 +273,7 @@ transitionDecoder =
                 )
         , Json.Decode.map TurnChanged (Json.Decode.field "TurnChanged" (Json.Decode.int))
         , Json.Decode.map GameEnded (Json.Decode.field "GameEnded" (realmIdDecoder))
+        , Json.Decode.map Shuffle (Json.Decode.field "Shuffle" (Json.Decode.int))
         ]
 
 type CardContent
