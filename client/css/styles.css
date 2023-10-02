@@ -1,5 +1,14 @@
-@import url('/assets/fonts/Tangerine-Bold.ttf');
-@import url('/assets/fonts/Tangerine-Regular.ttf');
+@font-face {
+  font-family: "Tangerine";
+  src: url('/assets/fonts/Tangerine-Regular.ttf');
+  font-weight: normal;
+}
+
+@font-face {
+  font-family: "Tangerine";
+  src: url('/assets/fonts/Tangerine-Bold.ttf');
+  font-weight: bold;
+}
 
 body {
 --border-radius: 15px;
@@ -129,7 +138,7 @@ body {
   background-color: transparent;
   perspective: 1000px;
   font-family: 'Tangerine', cursive;
-  font-weight: 700;
+  font-weight: bold;
   border-radius: var(--border-radius);
 }
 

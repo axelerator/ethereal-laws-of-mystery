@@ -1266,7 +1266,7 @@ viewportInfoFor numOfOpponents size =
         { vec = vec cardWidth cardHeight
         , width = cardWidth
         , height = cardHeight
-        , font = cardHeight * 0.7
+        , font = cardHeight * 1.0
         }
     , centerRowOrigin = point centerRowX centerRowY
     , deckPos = deckPos
@@ -1284,7 +1284,8 @@ inlineCSS viewportInfo =
                 [ ".card, .stack, .stack::after {"
                 , " width: " ++ px viewportInfo.cardSize.width ++ ";"
                 , " height: " ++ px viewportInfo.cardSize.height ++ ";"
-                , " font-size: " ++ px viewportInfo.cardSize.font ++ ""
+                , " font-size: " ++ px viewportInfo.cardSize.font ++ ";"
+                , " line-height: " ++ px (viewportInfo.cardSize.font / 0.5) ++ ";"
                 , "}"
                 ]
     in
