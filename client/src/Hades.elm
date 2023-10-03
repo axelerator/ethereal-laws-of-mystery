@@ -344,6 +344,7 @@ type alias GameInfo =
     , gameState : GameState
     , opponents : List (Opponent)
     , turn : Int
+    , myName : String
     }
 
 
@@ -357,6 +358,7 @@ gameInfoDecoder =
         |> Json.Decode.andThen (\x -> Json.Decode.map x (Json.Decode.field "game_state" (gameStateDecoder)))
         |> Json.Decode.andThen (\x -> Json.Decode.map x (Json.Decode.field "opponents" (Json.Decode.list (opponentDecoder))))
         |> Json.Decode.andThen (\x -> Json.Decode.map x (Json.Decode.field "turn" (Json.Decode.int)))
+        |> Json.Decode.andThen (\x -> Json.Decode.map x (Json.Decode.field "my_name" (Json.Decode.string)))
 
 
 locationDecoder : Json.Decode.Decoder Location

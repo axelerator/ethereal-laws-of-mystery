@@ -19,6 +19,7 @@ pub struct GameInfo {
     game_state: GameState,
     opponents: Vec<Opponent>,
     turn: RelativeOpponent,
+    my_name: String,
 }
 
 #[derive(Elm, ElmDecode, Serialize, Debug, Clone)]
@@ -491,6 +492,7 @@ impl Game {
             game_state,
             opponents,
             turn: self.player_relative_to(&self.current_player, &player_id),
+            my_name: self.players.iter().find(|p| p.id == player_id).map(|p| p.name.clone()).unwrap_or(Some("".to_owned())).unwrap()
         }
     }
 

@@ -77,6 +77,7 @@ type alias Model =
     , viewportInfo : ViewportInfo
     , gameState : GameState
     , opponents : List Opponent
+    , myScreenName : String
     , turn : RelativeOpponent
     , pileSize : Int
     , fadingMsg : Maybe ( String, Float )
@@ -158,6 +159,7 @@ init realmId gameInfo =
       , viewportInfo = viewportInfoFor (List.length gameInfo.opponents) <| vec 500 500
       , gameState = gameInfo.gameState
       , opponents = gameInfo.opponents
+      , myScreenName = gameInfo.myName
       , turn = gameInfo.turn
       , fadingMsg = Nothing
       }
@@ -747,12 +749,12 @@ view model =
 
 
 playerNames : Model -> List (Html Msg)
-playerNames { opponents, viewportInfo } =
+playerNames { opponents, viewportInfo, myScreenName } =
     let
         nameView name props =
             div (class "opponentName" :: (Tuple.first <| cssTransforms props)) [ text name ]
     in
-    List.map2 nameView ("Me" :: List.map .name opponents) viewportInfo.namePositions
+    List.map2 nameView (myScreenName :: List.map .name opponents) viewportInfo.namePositions
 
 
 oppNamePos : Int -> Int -> Props
