@@ -17,7 +17,6 @@ use prometheus::{
     HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, Opts, Registry,
 };
 
-use axum_server::tls_rustls::RustlsConfig;
 use axum_sessions::extractors::{ReadableSession, WritableSession};
 use axum_sessions::{async_session::MemoryStore, SameSite, SessionLayer};
 use elm_rs::{Elm, ElmDecode, ElmEncode};
@@ -28,11 +27,10 @@ use lazy_static::lazy_static;
 use rand::thread_rng;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use std::{convert::Infallible, net::SocketAddr, path::PathBuf, time::Duration};
+use std::{convert::Infallible, time::Duration};
 use tokio::sync::mpsc;
 use tokio_stream::{wrappers::ReceiverStream, StreamExt as _};
 use tower_http::services::{ServeDir, ServeFile};
-use tracing::debug;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use users::{SessionId, UserId};
 

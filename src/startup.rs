@@ -597,7 +597,8 @@ impl AppState {
         let rp_id = "ethereal-laws-of-mystery.axelerator";
         // Url containing the effective domain name
         // MUST include the port number!
-        let rp_origin = Url::parse("https://ethereal-laws-of-mystery.axelerator.de").expect("Invalid URL");
+        let rp_origin =
+            Url::parse("https://ethereal-laws-of-mystery.axelerator.de").expect("Invalid URL");
         let builder = WebauthnBuilder::new(rp_id, &rp_origin).expect("Invalid configuration");
 
         // Now, with the builder you can define other options.

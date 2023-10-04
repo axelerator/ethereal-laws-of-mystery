@@ -370,7 +370,7 @@ impl Game {
             error!("It's not this players turn");
             return (self, vec![]);
         }
-        let mut drawn_cards: Vec<CardContent> = vec![];
+        let drawn_cards: Vec<CardContent>;
         let mut drawn_cards_after_shuffle: Vec<CardContent> = vec![];
         let mut with_shuffle = false;
         if n > self.pile.len() {
@@ -492,7 +492,13 @@ impl Game {
             game_state,
             opponents,
             turn: self.player_relative_to(&self.current_player, &player_id),
-            my_name: self.players.iter().find(|p| p.id == player_id).map(|p| p.name.clone()).unwrap_or(Some("".to_owned())).unwrap()
+            my_name: self
+                .players
+                .iter()
+                .find(|p| p.id == player_id)
+                .map(|p| p.name.clone())
+                .unwrap_or(Some("".to_owned()))
+                .unwrap(),
         }
     }
 
