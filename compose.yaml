@@ -3,9 +3,9 @@ services:
     image: ethereal-laws-of-mystery:v1
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.whoami.rule=Host(`ethereal-laws-of-mystery.axelerator.de`)"
-      - "traefik.http.routers.whoami.entrypoints=websecure"
-      - "traefik.http.routers.whoami.tls.certresolver=myresolver"
+      - "traefik.http.routers.ethereal-laws-of-mystery.rule=Host(`ethereal-laws-of-mystery.axelerator.de`)"
+      - "traefik.http.routers.ethereal-laws-of-mystery.entrypoints=websecure"
+      - "traefik.http.routers.ethereal-laws-of-mystery.tls.certresolver=myresolver"
     environment:
       - DATABASE_URL=sqlite:///db-ethereal-laws-of-mystery/db.sqlite
     volumes:
