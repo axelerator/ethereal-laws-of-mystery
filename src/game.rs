@@ -110,9 +110,8 @@ fn deck() -> Vec<CardContent> {
     let mut cards = vec![];
     for number in 1..10 {
         cards.push(CardContent::NumberCard(number));
-        //cards.push(CardContent::NumberCard(number));
-        //cards.push(CardContent::NumberCard(number));
-        //cards.push(CardContent::NumberCard(number));
+        cards.push(CardContent::NumberCard(number));
+        cards.push(CardContent::NumberCard(number));
     }
 
     for _ in 0..1 {
