@@ -7,8 +7,11 @@ use auth::{login, login_with_credentials, LoginCredentials, LoginCredentialsResp
 use axum::{
     extract::Extension,
     http::StatusCode,
-    response::{sse::{Event, Sse}, Html},
     response::IntoResponse,
+    response::{
+        sse::{Event, Sse},
+        Html,
+    },
     routing::{get, post},
     Json, Router,
 };
@@ -27,7 +30,7 @@ use lazy_static::lazy_static;
 use rand::thread_rng;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use std::{convert::Infallible, time::Duration, process::exit, env};
+use std::{convert::Infallible, env, process::exit, time::Duration};
 use tokio::sync::mpsc;
 use tokio_stream::{wrappers::ReceiverStream, StreamExt as _};
 use tower_http::services::{ServeDir, ServeFile};
@@ -119,10 +122,8 @@ async fn main() {
         .with_secure(false); // TODO: change this to true when running on an HTTPS/production server instead of locally
     let serve_dir = ServeDir::new("www/assets").not_found_service(ServeFile::new("www/index.html"));
 
-    // build our application with a route
-    let app = Router::new()
-        .route("/", get(index_handler))
-        .nest_service("/:version/assets", serve_dir)
+    //
+    let api_routes = Router::new()
         .route("/register_with_credentials", post(register_with_creds))
         .route("/register_start/:username", post(start_register))
         .route("/register_finish", post(finish_register))
@@ -139,6 +140,12 @@ async fn main() {
         .layer(Extension(app_state))
         .layer(session_layer);
 
+    // build our application with a route
+    let app = Router::new()
+        .route("/", get(index_handler))
+        .nest_service("/:version/assets", serve_dir)
+        .nest("/", api_routes);
+
     axum::Server::bind(&"0.0.0.0:8080".parse().unwrap())
         .serve(app.into_make_service())
         .await
@@ -146,8 +153,9 @@ async fn main() {
 }
 
 lazy_static! {
-
-    static ref INDEX_HTML: String = include_str!("../www/index.html").to_string().replace("assets/", format!("{}/assets/", env!("VERSION")).as_str());
+    static ref INDEX_HTML: String = include_str!("../www/index.html")
+        .to_string()
+        .replace("assets/", format!("{}/assets/", env!("VERSION")).as_str());
 }
 
 async fn index_handler() -> Html<&'static str> {

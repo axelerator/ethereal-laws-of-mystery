@@ -610,7 +610,8 @@ impl AppState {
         // Consume the builder and create our webauthn instance.
         let webauthn = Arc::new(builder.build().expect("Invalid configuration"));
 
-        let connection = Connection::open(&env::var("DATABASE_URL").unwrap()).expect("Didn't find sqlite DB");
+        let connection =
+            Connection::open(&env::var("DATABASE_URL").unwrap()).expect("Didn't find sqlite DB");
         rusqlite::vtab::array::load_module(&connection).unwrap();
         let connection = Arc::new(Mutex::new(connection));
         let users = Arc::new(Mutex::new(Users::new(connection.clone())));
