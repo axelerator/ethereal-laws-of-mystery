@@ -199,7 +199,7 @@ impl Game {
         match self.validate(user, from_hand_pos, to_deck_pos) {
             Err(msg) => {
                 error!(msg);
-                return (self, vec![]);
+                (self, vec![])
             }
             Ok(MoveType::JustPlace) => {
                 let player = self.players.iter_mut().find(|p| &p.id == user).unwrap();
@@ -479,7 +479,7 @@ impl Game {
             .into_iter()
             .skip(1)
             .map(|p| Opponent {
-                name: p.name.as_ref().map(|s| s.clone()).unwrap_or("".to_string()),
+                name: p.name.as_ref().cloned().unwrap_or("".to_string()),
                 hand_size: p.hand.len(),
             })
             .collect();

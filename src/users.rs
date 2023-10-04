@@ -196,7 +196,7 @@ impl Users {
         password: &str,
     ) -> std::result::Result<User, String> {
         let connection = self.connection.lock().await;
-        let user = self.by_username_(&username, &connection);
+        let user = self.by_username_(username, &connection);
 
         match user {
             Some(_) => Err("Username already taken".to_string()),
