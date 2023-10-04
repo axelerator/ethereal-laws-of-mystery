@@ -23,10 +23,10 @@ import Cards
         , interpolate
         , locationOf
         , move
-        , removeCards
         , moveCardTo
         , point
         , px
+        , removeCards
         , revealContent
         , times
         , updateAni
@@ -456,6 +456,7 @@ update _ msg model =
                     ( model
                     , Cmd.none
                     )
+
                 Shuffle pileSize ->
                     ( shuffle model pileSize
                     , Cmd.none
@@ -597,15 +598,18 @@ update _ msg model =
             , Cmd.none
             )
 
+
 shuffle : Model -> Int -> Model
 shuffle model pileSize =
-  let
-      discardCardIds = idsOf isOnDiscardPile model.cards
-  in
-  { model
-  | pileSize = pileSize
-  , cards = removeCards (cardPositions model) (Debug.log "discarded" discardCardIds) model.cards
-  }
+    let
+        discardCardIds =
+            idsOf isOnDiscardPile model.cards
+    in
+    { model
+        | pileSize = pileSize
+        , cards = removeCards (cardPositions model) (Debug.log "discarded" discardCardIds) model.cards
+    }
+
 
 theyPlayed : Model -> RelativeOpponent -> Location -> Location -> CardContent -> RelativeOpponent -> Model
 theyPlayed model whoPlayed from to content nextPlayer =
@@ -787,7 +791,13 @@ fadeMsgView mb =
                                         ++ (fromFloat <| Maybe.withDefault 0 <| List.head <| List.drop i rnd)
                                         ++ "s"
                                 ]
-                                [ text <| String.fromList [ c ] ]
+                                [ text <|
+                                    if c == ' ' then
+                                        "\u{00A0}"
+
+                                    else
+                                        String.fromList [ c ]
+                                ]
                         )
                     <|
                         String.toList msg
@@ -981,10 +991,11 @@ deckView viewportInfo deckSize =
             div attributes [ viewCardContent attrsInner (NumberCard 1) ]
     in
     if deckSize > 0 then
-      div [ class "deck-stack" ]
-          [ deckCard, stack deckSize attrs ]
+        div [ class "deck-stack" ]
+            [ deckCard, stack deckSize attrs ]
+
     else
-      text ""
+        text ""
 
 
 cardsView : Model -> List (Html Msg)
@@ -1221,7 +1232,7 @@ viewportInfoFor numOfOpponents size =
             height - cardHeight
 
         myName =
-            { pos = point (width * 0.5) (height - cardHeight * 1.2)
+            { pos = point (width * 0.5) (height - cardHeight * 1.4)
             , degrees = 0
             , opacity = 1.0
             , flip = 0

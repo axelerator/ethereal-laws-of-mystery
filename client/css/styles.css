@@ -10,14 +10,45 @@
   font-weight: bold;
 }
 
-body {
---border-radius: 15px;
---neutral-glow: 0px 0px 1px 1px rgba(25, 32, 15, 1.0), 0px 0px 12px 5px rgba(225, 132, 15, 1.0);
+:root {
+  /* custom vars */
+  --neutral-glow: 0px 0px 1px 1px rgba(25, 32, 15, 1.0), 0px 0px 12px 5px rgba(225, 132, 15, 1.0);
+
+  /* pico.css OVERRIDDEN defaults */
+  --border-radius: 15px;
+  --font-size: 30px;
+  --form-element-spacing-vertical: 0.15rem;
+  --form-element-spacing-horizontal: 0.3rem;
+
+  /* pico.css defaults */
+
+  --font-family: "Tangerine", cursive;
+  --line-height: 1.5;
+  /* --font-weight: 400; */
+  /* --font-size: 16px; */
+  /* --border-radius: 0.25rem; */
+  --border-width: 1px;
+  --outline-width: 3px;
+  --spacing: 1rem;
+  --typography-spacing-vertical: 1.5rem;
+  --block-spacing-vertical: calc(var(--spacing) * 2);
+  --block-spacing-horizontal: var(--spacing);
+  --grid-spacing-vertical: 0;
+  --grid-spacing-horizontal: var(--spacing);
+  /* --form-element-spacing-vertical: 0.75rem; */
+  /* --form-element-spacing-horizontal: 1rem; */
+  --nav-element-spacing-vertical: 1rem;
+  --nav-element-spacing-horizontal: 0.5rem;
+  --nav-link-spacing-vertical: 0.5rem;
+  --nav-link-spacing-horizontal: 0.5rem;
+  --form-label-font-weight: var(--font-weight);
+  --transition: 0.2s ease-in-out;
+  --modal-overlay-backdrop-filter: blur(0.25rem);
+
 }
 
 .gameTitle {
   color: rgba(12, 6, 3, 1.0);
-  font-family: 'Tangerine', cursive;
   font-size: 2em;
   text-align: center;
   margin-top: 0.4em;
@@ -44,7 +75,6 @@ body {
   left: 0;
   right: 0;
   bottom: 0;
-  font-family: 'Tangerine', cursive;
   font-size: 5em;
   font-weight: bold;
   background-color: rgba(0,0,0, 0.2);
@@ -61,7 +91,6 @@ body {
   left: 0;
   right: 0;
   bottom: 0;
-  font-family: 'Tangerine', cursive;
   font-size: 3em;
   font-weight: bold;
   text-shadow: 15px 15px 5px #332311, 1px 1px 0px #333, 2px 2px 0px #999;
@@ -70,6 +99,10 @@ body {
   display: flex;
   justify-content: center;
   align-items: center;
+  opacity: 0.0;
+  background: radial-gradient(rgba(0,0,0, 0.5), rgba(0,0,0, 0));
+  animation-iteration-count: 1;
+  animation: fade 5s ease-out ;
 }
 
 .flash span {
@@ -77,9 +110,20 @@ body {
   transform: translateY(-120px);
   opacity: 0.0;
   animation-iteration-count: 1;
-  /*animation: move var(--delay) ease-out ;*/
+  animation: move var(--delay) ease-out ;
 
 }
+@keyframes fade {
+  from {
+    opacity: 1.0;
+  }
+
+  50% {
+    opacity: 1.0;
+  }
+}
+
+
 @keyframes move {
   from {
     transform: translateY(0);
@@ -92,14 +136,6 @@ body {
   }
 }
 
-@keyframes fadeOut2 {
-	0% { opacity: 1.0; transform: translate(0px) }
-	100% { opacity: 0.0; transform: translate(-80px)  }
-}
-@keyframes fadeOut {
-	0% { transform: translate(0,0); }
-	99% { transform: translate(0, -80px);  }
-}
 
 
 
@@ -137,7 +173,6 @@ body {
   position: absolute;
   background-color: transparent;
   perspective: 1000px;
-  font-family: 'Tangerine', cursive;
   font-weight: bold;
   border-radius: var(--border-radius);
 }
@@ -254,18 +289,19 @@ body {
   top: 0;
   left: 0.2em;
   color: #335;
-  line-height: 1.3em;
+  line-height: 0.8em;
   text-shadow: #DD9 1px 0 15px;
   text-align: center;
 }
 
 .card .mini {
   position: absolute;
-  top: 0;
+  top: 0.3em;
   right: 0.3em;
   color: #444;
   text-shadow: #DD9 1px 0 15px;
   font-size: 0.2em;
+  line-height: 0.5em;
 }
 
 .cards:not(.game-over) .card.hand:hover {
@@ -296,7 +332,6 @@ body {
   position: absolute;
   color: #EAEAE0;
   text-shadow: 0px 0px 2px #332311, 3px 3px 5px #332311;
-  font-family: 'Tangerine', cursive;
   font-weight: bold;
   font-size: 1.1em;
 }
@@ -369,7 +404,7 @@ body {
 
 .auth .card .mini {
   position: relative;
-  font-size: 0.9em;
+  font-size: 1.1em;
   font-weight: 400;
   text-align: center;
 }
