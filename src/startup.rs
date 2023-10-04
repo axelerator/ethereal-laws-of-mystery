@@ -594,7 +594,7 @@ type RealmManagerInbox = Sender<RealmManagerMsg>;
 impl AppState {
     pub async fn new() -> Self {
         // Effective domain name.
-        let rp_id = "ethereal-laws-of-mystery.axelerator";
+        let rp_id = "ethereal-laws-of-mystery.axelerator.de";
         // Url containing the effective domain name
         // MUST include the port number!
         let rp_origin =
