@@ -1,0 +1,22 @@
+{
+  "name": "ethereal-laws-of-mystery",
+  "version": "1.0.0",
+  "description": "An interactive guide to building web apps with Elm",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/axelerator/ethereal-laws-of-mystery.git"
+  },
+  "author": "Axel Tetzlaff",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/axelerator/ethereal-laws-of-mystery/issues"
+  },
+  "homepage": "https://github.com/axelerator/ethereal-laws-of-mystery/#readme",
+  "dependencies": {
+    "@lydell/elm": "^0.19.1-12"
+  }
+}

@@ -5,3 +5,4 @@
 .DS_Store
 self_signed_certs
 /prom
+/node_modules
