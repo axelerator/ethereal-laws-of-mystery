@@ -155,8 +155,8 @@ update { webauthn } msg model =
                     , webauthn ( "establishSSEconnection", lastLoginInfo model )
                     )
 
-                Ok (RegisteredWithCredsError _) ->
-                    ( model
+                Ok (RegisteredWithCredsError err) ->
+                    ( { model | error = Just err }
                     , Cmd.none
                     )
 

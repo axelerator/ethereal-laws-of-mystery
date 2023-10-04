@@ -1,6 +1,7 @@
 use rusqlite::Connection;
 use serde_rusqlite::*;
 use std::collections::{HashMap, HashSet};
+use std::env;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use tokio::sync::{mpsc::Sender, Mutex, RwLock};
@@ -288,7 +289,7 @@ where
                 }
             }
         } else {
-            panic!("Inbox not found");
+            //panic!("Inbox not found");
         }
     }
     stale_sessions
@@ -371,7 +372,7 @@ pub async fn new_realm(
                     let (updated_model, cmd) = model.update(msg, realm, &users).await;
                     model = updated_model;
                     if let Err(_) = cmd_inbox.send(cmd).await {
-                        todo!("Client disconnected, stop sending");
+                        //todo!("Client disconnected, stop sending");
                     }
                 }
                 RealmThreadMsg::SendJoin(realm_id, user_id, session_id) => {
@@ -381,7 +382,7 @@ pub async fn new_realm(
                         let (updated_model, cmd) = model.update(msg, realm, &users).await;
                         model = updated_model;
                         if let Err(_) = cmd_inbox.send(cmd).await {
-                            todo!("Client disconnected, stop sending");
+                            //todo!("Client disconnected, stop sending");
                         }
                     }
                 }
@@ -505,7 +506,7 @@ impl Realms {
     async fn send_msg(&self, realm_id: RealmId, msg: RealmThreadMsg) {
         if let Some(realm) = self.realms.get(&realm_id) {
             if realm.send(msg).await.is_err() {
-                todo!("track disconnected")
+                //todo!("track disconnected")
             }
         } else {
             error!("Realm {:?} not found!", realm_id);
@@ -609,7 +610,7 @@ impl AppState {
         // Consume the builder and create our webauthn instance.
         let webauthn = Arc::new(builder.build().expect("Invalid configuration"));
 
-        let connection = Connection::open("db.sqlite").expect("Didn't find sqlite DB");
+        let connection = Connection::open(&env::var("DATABASE_URL").unwrap()).expect("Didn't find sqlite DB");
         rusqlite::vtab::array::load_module(&connection).unwrap();
         let connection = Arc::new(Mutex::new(connection));
         let users = Arc::new(Mutex::new(Users::new(connection.clone())));

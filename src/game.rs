@@ -232,10 +232,6 @@ impl Game {
                         ));
                     }
                 }
-                println!(
-                    "Played card: {:?} to deck pos: {:?}",
-                    played_card, to_deck_pos
-                );
                 let discarded_card = std::mem::replace(&mut self.center[to_deck_pos], played_card);
                 self.discard_pile.push(discarded_card);
 
@@ -514,13 +510,6 @@ impl Game {
             .iter()
             .position(|p| &p.id == current_player)
             .unwrap();
-        println!(
-            "{:?}\ncurrent:{:?}\nother:{:?} -> op: {:?}",
-            self.players.iter().map(|p| p.id).collect::<Vec<UserId>>(),
-            current_player,
-            player_id,
-            r
-        );
         r
     }
 
@@ -546,13 +535,11 @@ impl Game {
     }
 
     fn numbers_match(&self) -> bool {
-        println!("Center: {:?}", self.center);
         let (operator, op1, op2, exp) = if self.is_equal_left() {
             (&self.center[3], 2, 4, 0)
         } else {
             (&self.center[1], 0, 2, 4)
         };
-        println!("center: {:?}", self.center);
         let v1 = self.get_val_at(op1);
         let v2 = self.get_val_at(op2);
         let expected = self.get_val_at(exp);
@@ -563,10 +550,6 @@ impl Game {
             CardContent::NumberCard(_) => panic!(),
             CardContent::SwapOperators => panic!(),
         };
-        println!(
-            "{}({}) + {}({}) = {} (exp: {})",
-            op1, v1, op2, v2, actual, expected
-        );
         actual == expected
     }
 
