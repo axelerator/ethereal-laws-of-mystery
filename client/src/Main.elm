@@ -82,7 +82,7 @@ update msg model =
             in
             case Decode.decodeString toFrontendEnvelopeDecoder eventData of
                 Ok envelope ->
-                    case Debug.log "Event:" envelope of
+                    case envelope of
                         Noop ->
                             noop
 
@@ -121,7 +121,7 @@ update msg model =
             in
             case Decode.decodeString toFrontendEnvelopeDecoder eventData of
                 Ok envelope ->
-                    case Debug.log "Event:" envelope of
+                    case envelope of
                         Noop ->
                             noop
 

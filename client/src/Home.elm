@@ -26,7 +26,7 @@ import Hades
         , Transition(..)
         , toBackendEnvelopeEncoder
         )
-import Html exposing (Attribute, Html, div, node, span, text)
+import Html exposing (Attribute, Html, br, div, node, span, text)
 import Html.Attributes exposing (attribute, class, style, width)
 import Html.Events exposing (onClick)
 import Http exposing (jsonBody)
@@ -42,7 +42,7 @@ type Model
         { cards : CardsModel
         , viewportInfo : ViewportInfo
         }
-    | PengingGame
+    | PengingGame ViewportInfo
 
 
 type Location
@@ -124,9 +124,21 @@ updateFromRealm toFrontend model =
 update { webauthn } msg model =
     case ( msg, model ) of
         ( FromBackend toFrontend, _ ) ->
+            let
+                vpI =
+                    case model of
+                        Open { viewportInfo } ->
+                            viewportInfo
+
+                        Closed viewportInfo ->
+                            viewportInfo
+
+                        PengingGame viewportInfo ->
+                            viewportInfo
+            in
             case toFrontend of
                 WaitingForMorePlayers ->
-                    ( PengingGame
+                    ( PengingGame vpI
                     , Cmd.none
                     )
 
@@ -373,8 +385,15 @@ cardsView model =
         Open { cards, viewportInfo } ->
             inlineCSS viewportInfo :: Cards.viewAnis cards cardView
 
-        _ ->
-            [ text "waiting" ]
+        PengingGame viewportInfo ->
+            [ inlineCSS viewportInfo
+            , div [ class "card menu waitingForMorePlayers" ]
+                [ div [ class "inner" ]
+                    [ div [ class "front" ] [ div [ class "big" ] [ text "waiting", br [] [], text "for more", br [] [], text "players" ] ]
+                    , div [ class "back" ] []
+                    ]
+                ]
+            ]
 
 
 cardView : Card -> CardAniAttrs Msg -> Html Msg

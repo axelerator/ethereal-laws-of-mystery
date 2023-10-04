@@ -541,23 +541,36 @@ update _ msg model =
                         dropLocation =
                             List.head <| values <| List.map dropZoneCard model.highlightedCards
 
-                        ( cards, cmd ) =
+                        ( cards, cmd, fadingMsg ) =
                             case dropLocation of
                                 Just droppedOnId ->
                                     case locationOf model.cards droppedOnId of
                                         Just (CenterRow centerPos) ->
-                                            ( fromDrag, send model.realmId <| Play originalHandPos centerPos )
+                                            ( fromDrag
+                                            , send model.realmId <| Play originalHandPos centerPos 
+                                            , Nothing
+                                            )
 
                                         _ ->
-                                            ( fromDrag, Cmd.none )
+                                            ( fromDrag
+                                            , Cmd.none
+                                            , Nothing
+                                            )
 
                                 Nothing ->
-                                    ( toHand, Cmd.none )
+                                  if model.turn == 0 then
+                                    ( toHand, Cmd.none, Nothing )
+                                  else
+                                    ( toHand
+                                    , Cmd.none
+                                    , Just ( "It's not your turn yet!", 5000 )
+                                    )
                     in
                     ( { model
                         | cards = cards
                         , draggedCard = Nothing
                         , highlightedCards = []
+                        , fadingMsg = fadingMsg
                       }
                     , cmd
                     )
@@ -607,7 +620,7 @@ shuffle model pileSize =
     in
     { model
         | pileSize = pileSize
-        , cards = removeCards (cardPositions model) (Debug.log "discarded" discardCardIds) model.cards
+        , cards = removeCards (cardPositions model) discardCardIds model.cards
     }
 
 
@@ -1160,9 +1173,6 @@ handVisAVis viewportInfo cardsModel opponentId p =
     let
         handCardCount =
             List.length <| Cards.filter (isInOpponentsHand opponentId) cardsModel
-
-        _ =
-            Debug.log "opp hand count" handCardCount
 
         degreePerCard =
             maxSpread / toFloat handCardCount

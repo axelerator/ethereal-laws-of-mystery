@@ -16,7 +16,7 @@ COPY . .
 RUN touch ./src/main.rs
 RUN cargo build --release
 
-RUN cd client && npx elm make src/Main.elm --output=main.js # --optimize
+RUN cd client && npx elm make src/Main.elm --output=main.js --optimize
 
 EXPOSE 8080
 

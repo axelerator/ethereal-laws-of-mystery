@@ -131,12 +131,13 @@ addCards cps newCards model =
                     addCardNoAni c m
             in
             ( m_, cid :: cards )
-        (m__, cids) = List.foldr addCard__ ( model, [] ) newCards
-            
+
+        ( m__, cids ) =
+            List.foldr addCard__ ( model, [] ) newCards
     in
-      ( updateAni cps m__
-      , cids
-      )
+    ( updateAni cps m__
+    , cids
+    )
 
 
 addCard :
@@ -176,6 +177,7 @@ addCardNoAni ( location, content ) (CardsModel ({ cards, cardIdGen } as rest)) =
     , newCard
     )
 
+
 removeCards :
     CardPositions location cardContent
     -> List CardId
@@ -183,16 +185,17 @@ removeCards :
     -> CardsModel location cardContent
 removeCards cardPositions cardIds ((CardsModel details) as model) =
     let
-        ( extracted_cards, restCards) =
+        ( extracted_cards, restCards ) =
             List.partition (\card -> List.member card.id cardIds) details.cards
-
     in
     if List.isEmpty extracted_cards then
-            model 
+        model
+
     else
-             CardsModel
-                { details | cards = restCards }
-                |> updateAni cardPositions
+        CardsModel
+            { details | cards = restCards }
+            |> updateAni cardPositions
+
 
 removeCard :
     CardPositions location cardContent
@@ -201,7 +204,7 @@ removeCard :
     -> ( Maybe ( Card location cardContent, Point ), CardsModel location cardContent )
 removeCard cardPositions cardId ((CardsModel ({ cards, visuals } as rest)) as model) =
     let
-        ( extracted_cards, restCards) =
+        ( extracted_cards, restCards ) =
             List.partition ((==) cardId << .id) cards
 
         visual =

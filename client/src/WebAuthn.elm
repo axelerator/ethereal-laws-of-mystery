@@ -1,7 +1,7 @@
 module WebAuthn exposing (Model, Msg, initOnLogin, update, view)
 
 import Hades exposing (LoginCredentialsResponse(..), RegisterCredentialsResponse(..), loginCredentialsEncoder, loginCredentialsResponseDecoder, registerCredentialsEncoder, registerCredentialsResponseDecoder)
-import Html exposing (Html, a, br, button, div, form, input, p, span, text)
+import Html exposing (Html, a, br, button, div, form, input, span, text)
 import Html.Attributes exposing (class, placeholder, style, value)
 import Html.Events exposing (onClick, onInput, onSubmit)
 import Http
@@ -22,7 +22,7 @@ initOnLogin { webauthn } lastLoginInfoFromFlags =
                 { username = "", password = Just "", variant = OnLogin, error = Nothing }
 
             else
-                case Debug.log "split" <| String.split "====" lastLoginInfoFromFlags of
+                case String.split "====" lastLoginInfoFromFlags of
                     username :: "" :: [] ->
                         { username = username, password = Just "", variant = OnLogin, error = Nothing }
 
@@ -80,10 +80,6 @@ update { webauthn } msg model =
             )
 
         Noop res ->
-            let
-                _ =
-                    Debug.log "noop" res
-            in
             ( model
             , Cmd.none
             )
@@ -149,11 +145,7 @@ update { webauthn } msg model =
                     , webauthn ( "createCredentials", creationChallengeResponse )
                     )
 
-                Err e ->
-                    let
-                        _ =
-                            Debug.log "WA error:" e
-                    in
+                Err e_ ->
                     ( model, Cmd.none )
 
         GotRegistrationResponse r ->
@@ -169,10 +161,6 @@ update { webauthn } msg model =
                     )
 
                 Err e ->
-                    let
-                        _ =
-                            Debug.log "WA error:" e
-                    in
                     ( model, Cmd.none )
 
         GotLoginResponse r ->
@@ -188,10 +176,6 @@ update { webauthn } msg model =
                     )
 
                 Err e ->
-                    let
-                        _ =
-                            Debug.log "WA error:" e
-                    in
                     ( model, Cmd.none )
 
 
