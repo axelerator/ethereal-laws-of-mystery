@@ -7,7 +7,7 @@ use auth::{login, login_with_credentials, LoginCredentials, LoginCredentialsResp
 use axum::{
     extract::Extension,
     http::StatusCode,
-    response::sse::{Event, Sse},
+    response::{sse::{Event, Sse}, Html},
     response::IntoResponse,
     routing::{get, post},
     Json, Router,
@@ -27,7 +27,7 @@ use lazy_static::lazy_static;
 use rand::thread_rng;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use std::{convert::Infallible, time::Duration};
+use std::{convert::Infallible, time::Duration, process::exit, env};
 use tokio::sync::mpsc;
 use tokio_stream::{wrappers::ReceiverStream, StreamExt as _};
 use tower_http::services::{ServeDir, ServeFile};
@@ -82,21 +82,15 @@ fn register_custom_metrics() {
 
 #[tokio::main]
 async fn main() {
+    println!("{}", env!("VERSION"));
+
+    let args: Vec<String> = env::args().collect();
+    if args.len() > 1 && args[1] == "elm-types" {
+        write_elm_types();
+        exit(0);
+    }
+
     register_custom_metrics();
-    /*
-    let config = RustlsConfig::from_pem_file(
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("self_signed_certs")
-            .join("elmcards.ca.pem"),
-        //.join("cert.pem"),
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("self_signed_certs")
-            .join("elmcards.ca-key.pem"),
-        //join("key.pem"),
-    )
-    .await
-    .unwrap();
-    */
 
     tracing_subscriber::registry()
         .with(
@@ -109,7 +103,6 @@ async fn main() {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    write_elm_types();
     // Create the app
     let app_state = AppState::new().await;
 
@@ -128,8 +121,8 @@ async fn main() {
 
     // build our application with a route
     let app = Router::new()
-        .nest_service("/", ServeFile::new("www/index.html"))
-        .nest_service("/assets", serve_dir)
+        .route("/", get(index_handler))
+        .nest_service("/:version/assets", serve_dir)
         .route("/register_with_credentials", post(register_with_creds))
         .route("/register_start/:username", post(start_register))
         .route("/register_finish", post(finish_register))
@@ -146,20 +139,19 @@ async fn main() {
         .layer(Extension(app_state))
         .layer(session_layer);
 
-    // run our app with hyper
-    // `axum::Server` is a re-export of `hyper::Server`
-    /*
-    let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
-    debug!("listening on {addr}");
-    axum_server::bind_rustls(addr, config)
-        .serve(app.into_make_service())
-        .await
-        .unwrap();
-        */
     axum::Server::bind(&"0.0.0.0:8080".parse().unwrap())
         .serve(app.into_make_service())
         .await
         .unwrap();
+}
+
+lazy_static! {
+
+    static ref INDEX_HTML: String = include_str!("../www/index.html").to_string().replace("assets/", format!("{}/assets/", env!("VERSION")).as_str());
+}
+
+async fn index_handler() -> Html<&'static str> {
+    Html(&INDEX_HTML.as_str())
 }
 
 async fn unauthorized_stream() -> ReceiverStream<ToFrontendEnvelope> {

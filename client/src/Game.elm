@@ -50,6 +50,7 @@ import Hades
         , ToGame(..)
         , Transition(..)
         , toBackendEnvelopeEncoder
+        , appVersion
         )
 import Html exposing (Attribute, Html, a, br, button, div, node, p, span, text)
 import Html.Attributes exposing (attribute, class, id, style, width)
@@ -860,7 +861,7 @@ viewCardContent aniAttrs content =
                     ( text "=", "swap" )
     in
     div (class "inner" :: aniAttrs)
-        [ div [ class "front", style "background-image" <| "url(\"/assets/images/" ++ imageName ++ ".jpg\")" ]
+        [ div [ class "front", style "background-image" <| "url(\"/" ++ fromInt appVersion ++ "/assets/images/" ++ imageName ++ ".jpg\")" ]
             [ div [ class "mini" ] [ txt ]
             , div [ class "big" ] [ txt ]
             ]

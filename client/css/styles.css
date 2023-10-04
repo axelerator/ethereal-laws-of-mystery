@@ -1,12 +1,12 @@
 @font-face {
   font-family: "Tangerine";
-  src: url('/assets/fonts/Tangerine-Regular.ttf');
+  src: url('../fonts/Tangerine-Regular.ttf');
   font-weight: normal;
 }
 
 @font-face {
   font-family: "Tangerine";
-  src: url('/assets/fonts/Tangerine-Bold.ttf');
+  src: url('../fonts/Tangerine-Bold.ttf');
   font-weight: bold;
 }
 
@@ -149,14 +149,14 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background-image: url("/assets/images/table.png");
+  background-image: url("../images/table.png");
   background-size: cover;
   background-position: center;
   overflow: hidden;
 }
 
 .in-game-button {
-  background-image: url("/assets/images/table.png");
+  background-image: url("../images/table.png");
   background-size: 320%;
   background-position: 40% 20%;
   border: 1px solid #332;
@@ -197,7 +197,7 @@
   border-radius: var(--border-radius);
   z-index: 5;
   box-shadow: 1px 1px 1px 1px rgba(0, 0, 0, 0.4);
-  background-image: url("/assets/images/cardbg.jpg");
+  background-image: url("../images/cardbg.jpg");
   background-size: cover;
   transform: rotateZ(var(--wiggle));
 }
@@ -206,7 +206,7 @@
   content: "\00A0";
   display: block;
   position: relative;
-  background-image: url("/assets/images/cardbg.jpg");
+  background-image: url("../images/cardbg.jpg");
   background-size: cover;
   box-shadow: 1px 1px 1px 1px rgba(0, 0, 0, 0.4);
   left: 1px;
@@ -216,11 +216,11 @@
 }
 
 .card.menu .back {
-  background-image: url("/assets/images/cardbg.jpg");
+  background-image: url("../images/cardbg.jpg");
   background-size: cover;
 }
 .card.menu .front {
-  background-image: url("/assets/images/menu_card_bg.png");
+  background-image: url("../images/menu_card_bg.png");
   background-size: cover;
 }
 
@@ -319,7 +319,7 @@
 
 
 .card .back {
-  background-image: url("/assets/images/cardbg.jpg");
+  background-image: url("../images/cardbg.jpg");
   background-size: cover;
   transform: rotateY(180deg);
   border-radius: var(--border-radius);
@@ -409,7 +409,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background-image: url("/assets/images/table.png");
+  background-image: url("../images/table.png");
   background-size: cover;
   background-position: center;
   overflow: hidden;
@@ -438,7 +438,7 @@
 }
 
 .auth .card .front, .auth .card .back {
-  background-image: url("/assets/images/menu_card_bg.png");
+  background-image: url("../images/menu_card_bg.png");
   background-size: cover;
   box-shadow: 5px 5px 8px 1px rgba(0, 0, 0, 0.4);
 

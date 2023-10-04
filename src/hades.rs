@@ -1,6 +1,6 @@
 use elm_rs::{Elm, ElmDecode, ElmEncode};
 use serde::{Deserialize, Serialize};
-use std::fs::File;
+use std::{fs::File, io::Write};
 
 use crate::{
     app::{ToBackend, ToFrontend, ToFrontendLobby, ToLobby},
@@ -29,6 +29,8 @@ pub enum ToFrontendEnvelope {
 }
 
 pub fn write_elm_types() {
+    println!("Writing elm types");
+
     let mut target = File::create("client/src/Hades.elm").unwrap();
     // elm_rs provides a macro for conveniently creating an Elm module with everything needed
     elm_rs::export!("Hades", &mut target, {
@@ -42,4 +44,8 @@ pub fn write_elm_types() {
         query_fields: [],
     })
     .unwrap();
+
+    target
+        .write_all(format!("\nappVersion = {}\n", env!("VERSION")).as_bytes())
+        .unwrap();
 }

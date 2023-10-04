@@ -23,7 +23,7 @@ tokio-stream = "0.1.14"
 futures = "0.3.28"
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
-axum-server = { version = "0.5.1", features = ["tls-rustls"] }
+axum-server = { version = "0.5.1", features = [] }
 argon2 = "0.5.2"
 password-hash = "0.5.0"
 lazy_static = "1.4.0"

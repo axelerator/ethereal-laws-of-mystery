@@ -462,3 +462,5 @@ registerCredentialsResponseDecoder =
         , Json.Decode.map RegisteredWithCredsError (Json.Decode.field "RegisteredWithCredsError" (Json.Decode.string))
         ]
 
+
+appVersion = 69
