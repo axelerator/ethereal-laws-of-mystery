@@ -123,7 +123,7 @@ updateFromRealm toFrontend model =
 
 update { webauthn } msg model =
     case ( msg, model ) of
-        ( FromBackend toFrontend, Open model_ ) ->
+        ( FromBackend toFrontend, _ ) ->
             case toFrontend of
                 WaitingForMorePlayers ->
                     ( PengingGame
