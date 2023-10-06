@@ -8,6 +8,7 @@ services:
       - "traefik.http.routers.ethereal-laws-of-mystery.tls.certresolver=myresolver"
     environment:
       - DATABASE_URL=/db-ethereal-laws-of-mystery/db.sqlite
+      - RUST_LOG=debug
     volumes:
       - /opt/etoml:/opt/etoml
       - /db-ethereal-laws-of-mystery:/db-ethereal-laws-of-mystery

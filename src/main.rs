@@ -33,7 +33,7 @@ use serde::{Deserialize, Serialize};
 use std::{convert::Infallible, env, process::exit, time::Duration};
 use tokio::sync::mpsc;
 use tokio_stream::{wrappers::ReceiverStream, StreamExt as _};
-use tower_http::services::{ServeDir, ServeFile};
+use tower_http::{services::{ServeDir, ServeFile}, compression::CompressionLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use users::{SessionId, UserId};
 
@@ -119,7 +119,7 @@ async fn main() {
         .with_cookie_name("webauthnrs")
         .with_same_site_policy(SameSite::Lax)
         .with_http_only(false) // to allow remember session via JS
-        .with_secure(false); // TODO: change this to true when running on an HTTPS/production server instead of locally
+        .with_secure(!cfg!(debug_assertions)); // TODO: change this to true when running on an HTTPS/production server instead of locally
     let serve_dir = ServeDir::new("www/assets").not_found_service(ServeFile::new("www/index.html"));
 
     //
@@ -138,7 +138,8 @@ async fn main() {
         .route("/events", get(sse_handler))
         .route("/metrics", get(metrics_handler))
         .layer(Extension(app_state))
-        .layer(session_layer);
+        .layer(session_layer)
+        .layer(CompressionLayer::new());
 
     // build our application with a route
     let app = Router::new()
