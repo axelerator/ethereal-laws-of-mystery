@@ -1,9 +1,12 @@
 ## Etheral Laws of Mystery
 
-This is an exploration on how to write multipliplayer, round based game with **Rust** in the backend
+This is an exploration on how to write a round based, multipliplayer game with **Rust** in the backend
 and **Elm** in the frontend.
 
+❗Disclaimer: 100% prototype, not cleaned up code ❗
+
 The architecture is heavily inspired by the design goals of [Lambdera](https://dashboard.lamdera.app/docs):
+
 The central interface are two message types ([ToFrontend](https://github.com/axelerator/ethereal-laws-of-mystery/blob/main/src/app.rs#L22) and 
 [ToBackend](https://github.com/axelerator/ethereal-laws-of-mystery/blob/main/src/app.rs#L22)) that are exchanged between front- and backend.
 
